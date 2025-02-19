@@ -1,8 +1,3 @@
-"""
-SPP Ingredients Allocation App
-This Streamlit app helps with the allocation of ingredients based on historical usage proportions from Google Sheets.
-"""
-
 import pandas as pd
 import streamlit as st
 import gspread
