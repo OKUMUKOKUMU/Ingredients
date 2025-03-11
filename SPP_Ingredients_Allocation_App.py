@@ -112,13 +112,24 @@ st.markdown("""
         text-align: center;
         font-size: 46px;
         font-weight: bold;
-        color: #FFC300; /* Cheese color */
+        color: #FFC300;
         font-family: 'Amasis MT Pro', Arial, sans-serif;
+    }
+    .subtitle {
+        text-align: center;
+        font-size: 18px;
+        color: #6c757d;
+    }
+    .footer {
+        text-align: center;
+        font-size: 14px;
+        color: #888888;
     }
     </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<h1 class='title'> SPP Ingredients Allocation App </h1>", unsafe_allow_html=True)
+st.markdown("<h1 class='title'>SPP Ingredients Allocation App</h1>", unsafe_allow_html=True)
+st.markdown("<p class='subtitle'>Efficiently allocate ingredient stock across departments based on historical usage</p>", unsafe_allow_html=True)
 
 # Google Sheet credentials and details
 SPREADSHEET_NAME = 'BROWNS STOCK MANAGEMENT'
@@ -131,20 +142,37 @@ data = load_data_from_google_sheet()
 # Extract unique item names for auto-suggestions
 unique_item_names = data["ITEM NAME"].unique().tolist()
 
-# Auto-suggest input field for item name
-identifier = st.selectbox("Enter Item Serial or Name:", unique_item_names)
-available_quantity = st.number_input("Enter Available Quantity:", min_value=0.0, step=0.1)
+# Form Layout for Better UX
+st.markdown("### Enter Items and Quantities")
+with st.form("allocation_form"):
+    num_items = st.number_input("Number of items to allocate", min_value=1, max_value=10, step=1, value=1)
 
-if st.button("Calculate Allocation"):
-    if identifier and available_quantity > 0:
-        result = allocate_quantity(data, identifier, available_quantity)
-        if result is not None:
-            st.markdown("<div style='text-align: center;'><h3>Allocation Per Department</h3></div>", unsafe_allow_html=True)
-            st.dataframe(result.rename(columns={"DEPARTMENT_CAT": "Department", "QUANTITY": "Proportion (%)"}), use_container_width=True)
-        else:
-            st.error("Item not found in historical data!")
+    entries = []
+    for i in range(num_items):
+        st.markdown(f"**Item {i+1}**")
+        col1, col2 = st.columns([2, 1])
+        with col1:
+            identifier = st.selectbox(f"Select item {i+1}", unique_item_names, key=f"item_{i}")
+        with col2:
+            available_quantity = st.number_input(f"Quantity for {identifier}:", min_value=0.1, step=0.1, key=f"qty_{i}")
+
+        if identifier and available_quantity > 0:
+            entries.append((identifier, available_quantity))
+
+    submitted = st.form_submit_button("Calculate Allocation")
+
+# Processing Allocation
+if submitted:
+    if not entries:
+        st.warning("Please enter at least one valid item and quantity!")
     else:
-        st.warning("Please enter a valid item serial/name and quantity.")
+        for identifier, available_quantity in entries:
+            result = allocate_quantity(data, identifier, available_quantity)
+            if result is not None:
+                st.markdown(f"<h3 style='color: #2E86C1;'>Allocation for {identifier}</h3>", unsafe_allow_html=True)
+                st.dataframe(result.rename(columns={"DEPARTMENT_CAT": "Department", "QUANTITY": "Proportion (%)"}), use_container_width=True)
+            else:
+                st.error(f"Item {identifier} not found in historical data!")
 
 # Footnote
-st.markdown("<p style='text-align: center; font-size: 14px;'> Developed by Brown's Data Team,©2025 </p>", unsafe_allow_html=True)
+st.markdown("<p class='footer'> Developed by Brown's Data Team, ©2025 </p>", unsafe_allow_html=True)
