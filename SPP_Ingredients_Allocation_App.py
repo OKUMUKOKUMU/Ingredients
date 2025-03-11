@@ -5,14 +5,15 @@ from oauth2client.service_account import ServiceAccountCredentials
 from dotenv import load_dotenv
 import os
 
-load_dotenv()  # Load environment variables from .env file
+# Load environment variables
+load_dotenv()
 
 def connect_to_gsheet(creds_file, spreadsheet_name, sheet_name):
     """
     Authenticate and connect to Google Sheets.
     """
     scope = ["https://spreadsheets.google.com/feeds", 
-             'https://www.googleapis.com/auth/spreadsheets',
+             "https://www.googleapis.com/auth/spreadsheets",
              "https://www.googleapis.com/auth/drive.file", 
              "https://www.googleapis.com/auth/drive"]
     
@@ -40,20 +41,26 @@ def load_data_from_google_sheet():
     """
     worksheet = connect_to_gsheet(CREDENTIALS_FILE, SPREADSHEET_NAME, SHEET_NAME)
     
-    # Get all records of the data
+    # Get all records from the Google Sheet
     data = worksheet.get_all_records()
 
-    # Convert data to DataFrame and rename columns correctly
+    # Convert data to DataFrame
     df = pd.DataFrame(data)
-    df.columns = ["DATE", "ITEM_SERIAL", "ITEM NAME", "ISSUED_TO", "QUANTITY", 
+
+    # Ensure columns match the updated Google Sheets structure
+    df.columns = ["DATE", "ITEM_SERIAL", "ITEM NAME", "DEPARTMENT", "ISSUED_TO", "QUANTITY", 
                   "UNIT_OF_MEASURE", "ITEM_CATEGORY", "WEEK", "REFERENCE", 
                   "DEPARTMENT_CAT", "BATCH NO.", "STORE", "RECEIVED BY"]
+
+    # Convert date and numeric columns
     df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce")
     df["QUANTITY"] = pd.to_numeric(df["QUANTITY"], errors="coerce")
     df.dropna(subset=["QUANTITY"], inplace=True)
+    
+    # Extract quarter information
     df["QUARTER"] = df["DATE"].dt.to_period("Q")
 
-    # Filter data to include from the year 2024 to the current date
+    # Filter data for 2024 onwards
     df = df[df["DATE"].dt.year >= 2024]
 
     return df
@@ -87,7 +94,7 @@ def allocate_quantity(df, identifier, available_quantity):
 
     proportions["Allocated Quantity"] = (proportions["QUANTITY"] / 100) * available_quantity
 
-    # Adjust to make sure the sum matches the input quantity
+    # Adjust to ensure the sum matches the input quantity
     allocated_sum = proportions["Allocated Quantity"].sum()
     if allocated_sum != available_quantity:
         difference = available_quantity - allocated_sum
@@ -118,6 +125,7 @@ SPREADSHEET_NAME = 'BROWNS STOCK MANAGEMENT'
 SHEET_NAME = 'CHECK_OUT'
 CREDENTIALS_FILE = 'credentials.json'
 
+# Load the data
 data = load_data_from_google_sheet()
 
 # Extract unique item names for auto-suggestions
