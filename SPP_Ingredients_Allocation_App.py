@@ -437,21 +437,4 @@ elif view_mode == "Data Overview":
     # Show data overview
     st.markdown("#### Filtered Data Preview")
     display_columns = ["DATE", "ITEM NAME", "DEPARTMENT", sub_dept_col, "QUANTITY", "UNIT_OF_MEASURE"]
-    st.dataframe(filtered_data[display_columns].head(100), use_container_width=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-    
-    # Simple statistics
-    st.markdown("<div class='card'>", unsafe_allow_html=True)
-    st.markdown("#### Usage Statistics")
-    total_usage = filtered_data["QUANTITY"].sum()
-    unique_items_count = filtered_data["ITEM NAME"].nunique()
-    
-    stat_col1, stat_col2, stat_col3 = st.columns(3)
-    with stat_col1:
-        st.metric("Total Quantity Used", f"{total_usage:,.2f}")
-    with stat_col2:
-        st.metric("Unique Items", f"{unique_items_count}")
-    with stat_col3:
-        st.metric("Total Transactions", f"{len(filtered_data):,}")
-    
-    st.markdown("</div>", unsafe_allow_html=True)
+    st.dataframe(filtered_data[display_columns].head(100), use_container_width
