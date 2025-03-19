@@ -87,9 +87,11 @@ def load_data_from_google_sheet():
 def get_cached_data():
     return load_data_from_google_sheet()
 
-def calculate_proportion(df, identifier, department=None):
+def calculate_proportion(df, identifier, department=None, min_proportion=1.0):
     """
-    Calculate department-wise usage proportion but keep subdepartment details.
+    Calculate department-wise usage proportion without subdepartment details.
+    Ensures all departments sum to 100%.
+    Filters out departments with proportions less than min_proportion.
     """
     if df is None:
         return None
@@ -109,113 +111,73 @@ def calculate_proportion(df, identifier, department=None):
             if filtered_df.empty:
                 return None
 
-        # First group by DEPARTMENT only to calculate proportions at department level
+        # Calculate department-level proportions only
         dept_usage = filtered_df.groupby("DEPARTMENT")["QUANTITY"].sum().reset_index()
+        
+        # Calculate total across all departments
         total_usage = dept_usage["QUANTITY"].sum()
         
         if total_usage == 0:
             return None
             
+        # Calculate each department's proportion of the total
         dept_usage["PROPORTION"] = (dept_usage["QUANTITY"] / total_usage) * 100
         
-        # Create a dictionary of department proportions for reference
-        dept_proportions = dict(zip(dept_usage["DEPARTMENT"], dept_usage["PROPORTION"]))
+        # Filter out departments with proportions less than min_proportion
+        significant_depts = dept_usage[dept_usage["PROPORTION"] >= min_proportion].copy()
         
-        # Now create detailed DataFrame with subdepartment info
-        # Keep DEPARTMENT, subdepartment columns, and sum quantities
-        detailed_usage = filtered_df.groupby(["DEPARTMENT", "DEPARTMENT_CAT", "ISSUED_TO"])["QUANTITY"].sum().reset_index()
+        # If no departments meet the threshold, return the one with the highest proportion
+        if significant_depts.empty and not dept_usage.empty:
+            significant_depts = pd.DataFrame([dept_usage.iloc[dept_usage["PROPORTION"].idxmax()]])
         
-        # Assign the department-level proportion to each row
-        detailed_usage["PROPORTION"] = detailed_usage["DEPARTMENT"].map(dept_proportions)
+        # Recalculate proportions to ensure they sum to 100%
+        total_proportion = significant_depts["PROPORTION"].sum()
+        significant_depts["PROPORTION"] = (significant_depts["PROPORTION"] / total_proportion) * 100
         
-        # Calculate relative quantity within each department (for sorting purposes)
-        # Ensure we're using absolute values for QUANTITY to avoid negative weights
-        detailed_usage["QUANTITY_ABS"] = detailed_usage["QUANTITY"].abs()
-        dept_totals = detailed_usage.groupby("DEPARTMENT")["QUANTITY_ABS"].transform('sum')
-        detailed_usage["INTERNAL_WEIGHT"] = detailed_usage["QUANTITY_ABS"] / dept_totals
+        # Calculate relative weights for sorting
+        significant_depts["QUANTITY_ABS"] = significant_depts["QUANTITY"].abs()
+        significant_depts["INTERNAL_WEIGHT"] = significant_depts["QUANTITY_ABS"] / significant_depts["QUANTITY_ABS"].sum()
         
-        # Sort by department proportion (descending) and then by internal weight (descending)
-        detailed_usage.sort_values(by=["PROPORTION", "INTERNAL_WEIGHT"], ascending=[False, False], inplace=True)
+        # Sort by proportion (descending)
+        significant_depts.sort_values(by=["PROPORTION"], ascending=[False], inplace=True)
         
-        return detailed_usage
+        return significant_depts
     except Exception as e:
         st.error(f"Error calculating proportions: {e}")
         return None
 
 def allocate_quantity(df, identifier, available_quantity, department=None):
     """
-    Allocate quantity based on historical proportions.
+    Allocate quantity based on historical proportions at department level only.
+    Filters out departments with less than 1% proportion.
     """
-    proportions = calculate_proportion(df, identifier, department)
+    proportions = calculate_proportion(df, identifier, department, min_proportion=1.0)
     if proportions is None:
         return None
-
-    # Calculate allocated quantity based on the department proportion
-    # Use the absolute value of the proportion to ensure positive allocation
-    proportions["PROPORTION_ABS"] = proportions["PROPORTION"].abs()
     
-    # Normalize proportions to ensure they sum to 100%
-    total_proportion = proportions["PROPORTION_ABS"].sum()
-    if total_proportion > 0:  # Prevent division by zero
-        proportions["PROPORTION_ABS"] = (proportions["PROPORTION_ABS"] / total_proportion) * 100
-    
-    # Calculate allocation based on normalized proportions
-    proportions["ALLOCATED_QUANTITY"] = (proportions["PROPORTION_ABS"] / 100) * available_quantity
-    
-    # Calculate allocated quantity for each department
-    dept_allocation = proportions.groupby("DEPARTMENT")["ALLOCATED_QUANTITY"].sum().reset_index()
-    
-    # Adjust to ensure the sum matches the input quantity exactly
-    allocated_sum = dept_allocation["ALLOCATED_QUANTITY"].sum()
-    if allocated_sum != available_quantity and len(dept_allocation) > 0:
-        difference = available_quantity - allocated_sum
-        index_max = dept_allocation["ALLOCATED_QUANTITY"].idxmax()
-        dept_allocation.at[index_max, "ALLOCATED_QUANTITY"] += difference
-    
-    # Create a dictionary of adjusted department allocations
-    adjusted_dept_allocations = dict(zip(dept_allocation["DEPARTMENT"], dept_allocation["ALLOCATED_QUANTITY"]))
-    
-    # For each department, distribute the adjusted allocation among subdepartments proportionally
-    result_dfs = []
-    for dept, group in proportions.groupby("DEPARTMENT"):
-        if dept in adjusted_dept_allocations:
-            dept_total = adjusted_dept_allocations[dept]
-            
-            # Distribute the department allocation based on internal weights
-            # Ensure we're using positive weights
-            group_copy = group.copy()
-            
-            # Normalize internal weights to sum to 1 within each department
-            group_internal_weights_sum = group_copy["INTERNAL_WEIGHT"].sum()
-            if group_internal_weights_sum > 0:  # Prevent division by zero
-                group_copy["INTERNAL_WEIGHT_NORM"] = group_copy["INTERNAL_WEIGHT"] / group_internal_weights_sum
-            else:
-                # If all weights are zero, distribute equally
-                group_copy["INTERNAL_WEIGHT_NORM"] = 1.0 / len(group_copy)
-                
-            group_copy["ALLOCATED_QUANTITY"] = group_copy["INTERNAL_WEIGHT_NORM"] * dept_total
-            result_dfs.append(group_copy)
-    
-    if not result_dfs:
-        return None
-        
-    # Combine all department results
-    final_result = pd.concat(result_dfs)
-    
-    # Ensure all allocated quantities are non-negative
-    final_result["ALLOCATED_QUANTITY"] = final_result["ALLOCATED_QUANTITY"].abs()
+    # Calculate allocated quantity for each department based on their proportion
+    proportions["ALLOCATED_QUANTITY"] = (proportions["PROPORTION"] / 100) * available_quantity
     
     # Round allocated quantities
-    final_result["ALLOCATED_QUANTITY"] = final_result["ALLOCATED_QUANTITY"].round(0)
+    proportions["ALLOCATED_QUANTITY"] = proportions["ALLOCATED_QUANTITY"].round(0)
     
-    return final_result
+    # Ensure the sum matches the available quantity exactly
+    allocated_sum = proportions["ALLOCATED_QUANTITY"].sum()
+    if abs(allocated_sum - available_quantity) > 0.01 and len(proportions) > 0:  # Allow small rounding error
+        difference = int(available_quantity - allocated_sum)
+        if difference != 0:
+            # Add/subtract the difference from the largest allocation
+            index_max = proportions["ALLOCATED_QUANTITY"].idxmax()
+            proportions.at[index_max, "ALLOCATED_QUANTITY"] += difference
+    
+    return proportions
 
 def generate_allocation_chart(result_df, item_name):
     """
     Generate a bar chart for allocation results.
     """
     # Create a summarized version for charting (by DEPARTMENT only)
-    chart_df = result_df.groupby("DEPARTMENT")["ALLOCATED_QUANTITY"].sum().reset_index()
+    chart_df = result_df.copy()
     
     # Create a bar chart
     fig = px.bar(
@@ -329,10 +291,6 @@ with st.sidebar:
     st.markdown("### View Options")
     view_mode = st.radio("Select View", ["Allocation Calculator", "Data Overview"])
     
-    # Sub-department display option
-    st.markdown("### Display Options")
-    sub_dept_source = st.radio("Sub-Department Source", ["DEPARTMENT_CAT", "ISSUED_TO"])
-    
     st.markdown("---")
     st.markdown("<p class='footer'>Developed by Brown's Data Team, ©2025</p>", unsafe_allow_html=True)
 
@@ -376,15 +334,11 @@ if view_mode == "Allocation Calculator":
                     st.markdown("<div class='card'>", unsafe_allow_html=True)
                     st.markdown(f"<div class='result-header'><h3 style='color: #2E86C1;'>Allocation for {identifier}</h3></div>", unsafe_allow_html=True)
                     
-                    # Decide which sub-department column to show based on user preference
-                    sub_dept_col = sub_dept_source
-                    
                     # Format the output for better readability
                     # Select and rename columns for display
-                    formatted_result = result[["DEPARTMENT", sub_dept_col, "PROPORTION", "ALLOCATED_QUANTITY"]].copy()
+                    formatted_result = result[["DEPARTMENT", "PROPORTION", "ALLOCATED_QUANTITY"]].copy()
                     formatted_result = formatted_result.rename(columns={
-                        "DEPARTMENT": "Department", 
-                        sub_dept_col: "Sub Department", 
+                        "DEPARTMENT": "Department",
                         "PROPORTION": "Proportion (%)",
                         "ALLOCATED_QUANTITY": "Allocated Quantity"
                     })
@@ -398,13 +352,11 @@ if view_mode == "Allocation Calculator":
                     
                     # Summary statistics
                     st.markdown("#### Allocation Summary")
-                    col1, col2, col3 = st.columns(3)
+                    col1, col2 = st.columns(2)
                     with col1:
                         st.metric("Total Allocated", f"{formatted_result['Allocated Quantity'].sum():,.0f}")
                     with col2:
                         st.metric("Departments", f"{formatted_result['Department'].nunique()}")
-                    with col3:
-                        st.metric("Sub-Departments", f"{formatted_result['Sub Department'].nunique()}")
                     
                     # Add a download button for the result
                     csv = formatted_result.to_csv(index=False)
@@ -441,12 +393,9 @@ elif view_mode == "Data Overview":
     if selected_overview_dept:
         filtered_data = filtered_data[filtered_data["DEPARTMENT"].isin(selected_overview_dept)]
     
-    # Decide which sub-department column to show based on user preference
-    sub_dept_col = sub_dept_source
-    
     # Show data overview
     st.markdown("#### Filtered Data Preview")
-    display_columns = ["DATE", "ITEM NAME", "DEPARTMENT", sub_dept_col, "QUANTITY", "UNIT_OF_MEASURE"]
+    display_columns = ["DATE", "ITEM NAME", "DEPARTMENT", "QUANTITY", "UNIT_OF_MEASURE"]
     st.dataframe(filtered_data[display_columns].head(100), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
     
