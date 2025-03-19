@@ -89,7 +89,7 @@ def get_cached_data():
 
 def calculate_proportion(df, identifier, department=None):
     """
-    Calculate department-wise usage proportion with sub-departments.
+    Calculate department-wise usage proportion but keep subdepartment details.
     """
     if df is None:
         return None
@@ -109,17 +109,32 @@ def calculate_proportion(df, identifier, department=None):
             if filtered_df.empty:
                 return None
 
-        # Group by DEPARTMENT and sub-department (DEPARTMENT_CAT and ISSUED_TO)
-        usage_summary = filtered_df.groupby(["DEPARTMENT", "DEPARTMENT_CAT", "ISSUED_TO"])["QUANTITY"].sum().reset_index()
-        total_usage = usage_summary["QUANTITY"].sum()
+        # First group by DEPARTMENT only to calculate proportions at department level
+        dept_usage = filtered_df.groupby("DEPARTMENT")["QUANTITY"].sum().reset_index()
+        total_usage = dept_usage["QUANTITY"].sum()
         
         if total_usage == 0:
             return None
             
-        usage_summary["PROPORTION"] = (usage_summary["QUANTITY"] / total_usage) * 100
-        usage_summary.sort_values(by="PROPORTION", ascending=False, inplace=True)
-
-        return usage_summary
+        dept_usage["PROPORTION"] = (dept_usage["QUANTITY"] / total_usage) * 100
+        
+        # Create a dictionary of department proportions for reference
+        dept_proportions = dict(zip(dept_usage["DEPARTMENT"], dept_usage["PROPORTION"]))
+        
+        # Now create detailed DataFrame with subdepartment info
+        # Keep DEPARTMENT, subdepartment columns, and sum quantities
+        detailed_usage = filtered_df.groupby(["DEPARTMENT", "DEPARTMENT_CAT", "ISSUED_TO"])["QUANTITY"].sum().reset_index()
+        
+        # Assign the department-level proportion to each row
+        detailed_usage["PROPORTION"] = detailed_usage["DEPARTMENT"].map(dept_proportions)
+        
+        # Calculate relative quantity within each department (for sorting purposes)
+        detailed_usage["INTERNAL_WEIGHT"] = detailed_usage["QUANTITY"] / detailed_usage.groupby("DEPARTMENT")["QUANTITY"].transform('sum')
+        
+        # Sort by department proportion (descending) and then by internal weight (descending)
+        detailed_usage.sort_values(by=["PROPORTION", "INTERNAL_WEIGHT"], ascending=[False, False], inplace=True)
+        
+        return detailed_usage
     except Exception as e:
         st.error(f"Error calculating proportions: {e}")
         return None
@@ -132,18 +147,43 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
     if proportions is None:
         return None
 
+    # Calculate allocated quantity based on the department proportion
     proportions["ALLOCATED_QUANTITY"] = (proportions["PROPORTION"] / 100) * available_quantity
-
-    # Adjust to ensure the sum matches the input quantity
-    allocated_sum = proportions["ALLOCATED_QUANTITY"].sum()
-    if allocated_sum != available_quantity and len(proportions) > 0:
+    
+    # Calculate allocated quantity for each department
+    dept_allocation = proportions.groupby("DEPARTMENT")["ALLOCATED_QUANTITY"].sum().reset_index()
+    
+    # Adjust to ensure the sum matches the input quantity exactly
+    allocated_sum = dept_allocation["ALLOCATED_QUANTITY"].sum()
+    if allocated_sum != available_quantity and len(dept_allocation) > 0:
         difference = available_quantity - allocated_sum
-        index_max = proportions["ALLOCATED_QUANTITY"].idxmax()
-        proportions.at[index_max, "ALLOCATED_QUANTITY"] += difference
-
-    proportions["ALLOCATED_QUANTITY"] = proportions["ALLOCATED_QUANTITY"].round(0)
-
-    return proportions
+        index_max = dept_allocation["ALLOCATED_QUANTITY"].idxmax()
+        dept_allocation.at[index_max, "ALLOCATED_QUANTITY"] += difference
+    
+    # Create a dictionary of adjusted department allocations
+    adjusted_dept_allocations = dict(zip(dept_allocation["DEPARTMENT"], dept_allocation["ALLOCATED_QUANTITY"]))
+    
+    # For each department, distribute the adjusted allocation among subdepartments proportionally
+    result_dfs = []
+    for dept, group in proportions.groupby("DEPARTMENT"):
+        if dept in adjusted_dept_allocations:
+            dept_total = adjusted_dept_allocations[dept]
+            
+            # Distribute the department allocation based on internal weights
+            group_copy = group.copy()
+            group_copy["ALLOCATED_QUANTITY"] = group_copy["INTERNAL_WEIGHT"] * dept_total
+            result_dfs.append(group_copy)
+    
+    if not result_dfs:
+        return None
+        
+    # Combine all department results
+    final_result = pd.concat(result_dfs)
+    
+    # Round allocated quantities
+    final_result["ALLOCATED_QUANTITY"] = final_result["ALLOCATED_QUANTITY"].round(0)
+    
+    return final_result
 
 def generate_allocation_chart(result_df, item_name):
     """
