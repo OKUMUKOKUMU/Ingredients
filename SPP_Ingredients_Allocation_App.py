@@ -82,7 +82,7 @@ def load_data_from_google_sheet():
             st.error(f"Error loading data: {e}")
             return None
 
-@st.cache_data(ttl=3600)  # Cache data for 1 hour
+@st.cache_data(ttl=300)  # Cache data for 1 hour
 def get_cached_data():
     return load_data_from_google_sheet()
 
