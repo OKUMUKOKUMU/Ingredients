@@ -88,7 +88,7 @@ def get_cached_data():
 
 def calculate_proportion(df, identifier, department=None):
     """
-    Calculate department-wise usage proportion AND subdepartment proportions within departments.
+    Calculate department-wise usage proportion for a specific item.
     """
     if df is None:
         return None
@@ -102,13 +102,7 @@ def calculate_proportion(df, identifier, department=None):
         if filtered_df.empty:
             return None
 
-        # If department is specified, filter by department
-        if department and department != "All Departments":
-            filtered_df = filtered_df[filtered_df["DEPARTMENT"] == department]
-            if filtered_df.empty:
-                return None
-
-        # First group by DEPARTMENT only to calculate proportions at department level
+        # Group by DEPARTMENT to calculate proportions at department level
         dept_usage = filtered_df.groupby("DEPARTMENT")["QUANTITY"].sum().reset_index()
         total_usage = dept_usage["QUANTITY"].sum()
         
@@ -118,45 +112,10 @@ def calculate_proportion(df, identifier, department=None):
         # Calculate department-level proportions (out of 100%)
         dept_usage["DEPT_PROPORTION"] = (dept_usage["QUANTITY"] / total_usage) * 100
         
-        # Create a dictionary of department proportions for reference
-        dept_proportions = dict(zip(dept_usage["DEPARTMENT"], dept_usage["DEPT_PROPORTION"]))
-        
-        # Now create detailed DataFrame with subdepartment info
-        # Keep DEPARTMENT, subdepartment columns, and sum quantities
-        detailed_usage = filtered_df.groupby(["DEPARTMENT", "DEPARTMENT_CAT", "ISSUED_TO"])["QUANTITY"].sum().reset_index()
-        
-        # Assign the department-level proportion to each row (for department-level allocation)
-        detailed_usage["DEPT_PROPORTION"] = detailed_usage["DEPARTMENT"].map(dept_proportions)
-        
-        # Calculate subdepartment proportions within each department
-        detailed_usage["PROPORTION"] = 0.0  # Initialize the column
-        
-        # For each department, calculate the proportion of each subdepartment
-        for dept in detailed_usage["DEPARTMENT"].unique():
-            dept_mask = detailed_usage["DEPARTMENT"] == dept
-            dept_total = detailed_usage.loc[dept_mask, "QUANTITY"].sum()
-            
-            if dept_total > 0:
-                # Calculate proportion within this department (out of 100%)
-                detailed_usage.loc[dept_mask, "PROPORTION"] = (detailed_usage.loc[dept_mask, "QUANTITY"] / dept_total) * 100
-            else:
-                # If quantities are zero, distribute equally
-                num_subdepts = detailed_usage.loc[dept_mask].shape[0]
-                detailed_usage.loc[dept_mask, "PROPORTION"] = 100.0 / num_subdepts if num_subdepts > 0 else 0.0
-        
-        # Calculate relative quantity within each department (for sorting purposes)
-        detailed_usage["QUANTITY_ABS"] = detailed_usage["QUANTITY"].abs()
-        dept_totals = detailed_usage.groupby("DEPARTMENT")["QUANTITY_ABS"].transform('sum')
-        detailed_usage["INTERNAL_WEIGHT"] = detailed_usage["QUANTITY_ABS"] / dept_totals
-        
-        # Sort by department proportion (descending) and then by internal weight (descending)
-        detailed_usage.sort_values(by=["DEPT_PROPORTION", "INTERNAL_WEIGHT"], ascending=[False, False], inplace=True)
-        
-        return detailed_usage
+        return dept_usage
     except Exception as e:
         st.error(f"Error calculating proportions: {e}")
-        return None
-        
+        return None   
 def allocate_quantity(df, identifier, available_quantity, department=None):
     """
     Allocate quantity based on historical proportions.
