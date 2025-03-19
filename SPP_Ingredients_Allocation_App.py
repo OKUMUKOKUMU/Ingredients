@@ -150,6 +150,7 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
     """
     Allocate quantity based on historical proportions at department level only.
     Filters out departments with less than 1% proportion.
+    Ensures total allocation exactly matches available quantity.
     """
     proportions = calculate_proportion(df, identifier, department, min_proportion=1.0)
     if proportions is None:
@@ -158,20 +159,39 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
     # Calculate allocated quantity for each department based on their proportion
     proportions["ALLOCATED_QUANTITY"] = (proportions["PROPORTION"] / 100) * available_quantity
     
-    # Round allocated quantities
-    proportions["ALLOCATED_QUANTITY"] = proportions["ALLOCATED_QUANTITY"].round(0)
+    # First calculate the sum of the non-rounded values
+    total_unrounded = proportions["ALLOCATED_QUANTITY"].sum()
     
-    # Ensure the sum matches the available quantity exactly
+    # Round allocated quantities to integers
+    proportions["ALLOCATED_QUANTITY"] = proportions["ALLOCATED_QUANTITY"].round(0).astype(int)
+    
+    # Get the total after rounding
     allocated_sum = proportions["ALLOCATED_QUANTITY"].sum()
-    if abs(allocated_sum - available_quantity) > 0.01 and len(proportions) > 0:  # Allow small rounding error
+    
+    # Adjust to ensure we match exactly the available quantity
+    if allocated_sum != available_quantity:
         difference = int(available_quantity - allocated_sum)
-        if difference != 0:
-            # Add/subtract the difference from the largest allocation
-            index_max = proportions["ALLOCATED_QUANTITY"].idxmax()
-            proportions.at[index_max, "ALLOCATED_QUANTITY"] += difference
+        
+        if difference > 0:
+            # Need to add some units - add to departments with largest fractional parts
+            # Sort by fractional part (descending)
+            fractional_parts = (proportions["PROPORTION"] / 100) * available_quantity - proportions["ALLOCATED_QUANTITY"]
+            indices = fractional_parts.sort_values(ascending=False).index[:difference].tolist()
+            for idx in indices:
+                proportions.at[idx, "ALLOCATED_QUANTITY"] += 1
+        elif difference < 0:
+            # Need to subtract some units - remove from departments with smallest fractional parts
+            # Sort by fractional part (ascending)
+            fractional_parts = (proportions["PROPORTION"] / 100) * available_quantity - (proportions["ALLOCATED_QUANTITY"] - 1)
+            indices = fractional_parts.sort_values(ascending=True).index[:-difference].tolist()
+            for idx in indices:
+                proportions.at[idx, "ALLOCATED_QUANTITY"] -= 1
+    
+    # Verify once more that the sum matches the available quantity exactly
+    final_sum = proportions["ALLOCATED_QUANTITY"].sum()
+    assert final_sum == available_quantity, f"Allocation error: {final_sum} != {available_quantity}"
     
     return proportions
-
 def generate_allocation_chart(result_df, item_name):
     """
     Generate a bar chart for allocation results.
