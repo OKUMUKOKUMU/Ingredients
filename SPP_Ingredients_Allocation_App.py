@@ -5,7 +5,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 from dotenv import load_dotenv
 import os
 from datetime import datetime
-import plotly.express as px
 
 # Load environment variables
 load_dotenv()
@@ -145,6 +144,7 @@ def calculate_proportion(df, identifier, department=None):
 def allocate_quantity(df, identifier, available_quantity, department=None):
     """
     Allocate quantity based on historical proportions.
+    Drop departments with less than 1% proportion and redistribute their quantities.
     """
     proportions = calculate_proportion(df, identifier, department)
     if proportions is None:
@@ -154,16 +154,23 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
     # Use the absolute value of the proportion to ensure positive allocation
     proportions["PROPORTION_ABS"] = proportions["PROPORTION"].abs()
     
+    # Filter out departments with less than 1% proportion
+    significant_proportions = proportions[proportions["PROPORTION_ABS"] >= 1.0]
+    
+    # If all departments have less than 1%, keep the one with the highest proportion
+    if significant_proportions.empty:
+        significant_proportions = proportions.nlargest(1, "PROPORTION_ABS")
+    
     # Normalize proportions to ensure they sum to 100%
-    total_proportion = proportions["PROPORTION_ABS"].sum()
+    total_proportion = significant_proportions["PROPORTION_ABS"].sum()
     if total_proportion > 0:  # Prevent division by zero
-        proportions["PROPORTION_ABS"] = (proportions["PROPORTION_ABS"] / total_proportion) * 100
+        significant_proportions["PROPORTION_ABS"] = (significant_proportions["PROPORTION_ABS"] / total_proportion) * 100
     
     # Calculate allocation based on normalized proportions
-    proportions["ALLOCATED_QUANTITY"] = (proportions["PROPORTION_ABS"] / 100) * available_quantity
+    significant_proportions["ALLOCATED_QUANTITY"] = (significant_proportions["PROPORTION_ABS"] / 100) * available_quantity
     
     # Calculate allocated quantity for each department
-    dept_allocation = proportions.groupby("DEPARTMENT")["ALLOCATED_QUANTITY"].sum().reset_index()
+    dept_allocation = significant_proportions.groupby("DEPARTMENT")["ALLOCATED_QUANTITY"].sum().reset_index()
     
     # Adjust to ensure the sum matches the input quantity exactly
     allocated_sum = dept_allocation["ALLOCATED_QUANTITY"].sum()
@@ -177,7 +184,7 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
     
     # For each department, distribute the adjusted allocation among subdepartments proportionally
     result_dfs = []
-    for dept, group in proportions.groupby("DEPARTMENT"):
+    for dept, group in significant_proportions.groupby("DEPARTMENT"):
         if dept in adjusted_dept_allocations:
             dept_total = adjusted_dept_allocations[dept]
             
@@ -205,40 +212,21 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
     # Ensure all allocated quantities are non-negative
     final_result["ALLOCATED_QUANTITY"] = final_result["ALLOCATED_QUANTITY"].abs()
     
-    # Round allocated quantities
-    final_result["ALLOCATED_QUANTITY"] = final_result["ALLOCATED_QUANTITY"].round(0)
+    # Round allocated quantities to integers
+    final_result["ALLOCATED_QUANTITY"] = final_result["ALLOCATED_QUANTITY"].round(0).astype(int)
+    
+    # Final adjustment to ensure the total matches the input exactly
+    total_allocated = final_result["ALLOCATED_QUANTITY"].sum()
+    if total_allocated != available_quantity and len(final_result) > 0:
+        difference = int(available_quantity - total_allocated)
+        
+        # If difference is positive, add to the largest allocation
+        # If negative, subtract from the largest allocation
+        if difference != 0:
+            index_max = final_result["ALLOCATED_QUANTITY"].idxmax()
+            final_result.at[index_max, "ALLOCATED_QUANTITY"] += difference
     
     return final_result
-
-def generate_allocation_chart(result_df, item_name):
-    """
-    Generate a bar chart for allocation results.
-    """
-    # Create a summarized version for charting (by DEPARTMENT only)
-    chart_df = result_df.groupby("DEPARTMENT")["ALLOCATED_QUANTITY"].sum().reset_index()
-    
-    # Create a bar chart
-    fig = px.bar(
-        chart_df, 
-        x="DEPARTMENT", 
-        y="ALLOCATED_QUANTITY",
-        text="ALLOCATED_QUANTITY",
-        title=f"Allocation for {item_name} by Department",
-        labels={
-            "DEPARTMENT": "Department",
-            "ALLOCATED_QUANTITY": "Allocated Quantity"
-        },
-        height=400,
-        color_discrete_sequence=px.colors.qualitative.Vivid
-    )
-    
-    # Customize the layout
-    fig.update_layout(
-        xaxis_title="Department",
-        yaxis_title="Allocated Quantity"
-    )
-    
-    return fig
 
 # Streamlit UI
 st.set_page_config(
@@ -376,6 +364,12 @@ if view_mode == "Allocation Calculator":
                     st.markdown("<div class='card'>", unsafe_allow_html=True)
                     st.markdown(f"<div class='result-header'><h3 style='color: #2E86C1;'>Allocation for {identifier}</h3></div>", unsafe_allow_html=True)
                     
+                    # Calculate the total allocated quantity to verify it matches the input
+                    total_allocated = result["ALLOCATED_QUANTITY"].sum()
+                    
+                    # Display a message indicating the total allocated matches the input
+                    st.markdown(f"**Total Allocated: {total_allocated:.0f}** (Input: {available_quantity:.0f})")
+                    
                     # Decide which sub-department column to show based on user preference
                     sub_dept_col = sub_dept_source
                     
@@ -391,7 +385,6 @@ if view_mode == "Allocation Calculator":
                     
                     # Format numeric columns
                     formatted_result["Proportion (%)"] = formatted_result["Proportion (%)"].round(2)
-                    formatted_result["Allocated Quantity"] = formatted_result["Allocated Quantity"].astype(int)
                     
                     # Display the result
                     st.dataframe(formatted_result, use_container_width=True)
@@ -414,10 +407,6 @@ if view_mode == "Allocation Calculator":
                         file_name=f"{identifier}_allocation.csv",
                         mime="text/csv",
                     )
-                    
-                    # Show visualization
-                    chart = generate_allocation_chart(result, identifier)
-                    st.plotly_chart(chart, use_container_width=True)
                     
                     st.markdown("</div>", unsafe_allow_html=True)
                 else:
@@ -464,18 +453,4 @@ elif view_mode == "Data Overview":
     with stat_col3:
         st.metric("Total Transactions", f"{len(filtered_data):,}")
     
-    # Usage by department visualization
-    if not filtered_data.empty:
-        st.markdown("#### Department Usage")
-        dept_usage = filtered_data.groupby("DEPARTMENT")["QUANTITY"].sum().reset_index()
-        dept_usage.sort_values(by="QUANTITY", ascending=False, inplace=True)
-        
-        fig = px.pie(
-            dept_usage, 
-            values="QUANTITY", 
-            names="DEPARTMENT", 
-            title="Usage Distribution by Department",
-            hole=0.4
-        )
-        st.plotly_chart(fig, use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
