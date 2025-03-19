@@ -89,7 +89,7 @@ def get_cached_data():
 
 def calculate_proportion(df, identifier, department=None):
     """
-    Calculate department-wise usage proportion.
+    Calculate department-wise usage proportion with sub-departments.
     """
     if df is None:
         return None
@@ -109,8 +109,8 @@ def calculate_proportion(df, identifier, department=None):
             if filtered_df.empty:
                 return None
 
-        # Group by DEPARTMENT and DEPARTMENT_CAT for combined view
-        usage_summary = filtered_df.groupby(["DEPARTMENT", "DEPARTMENT_CAT"])["QUANTITY"].sum().reset_index()
+        # Group by DEPARTMENT and sub-department (DEPARTMENT_CAT and ISSUED_TO)
+        usage_summary = filtered_df.groupby(["DEPARTMENT", "DEPARTMENT_CAT", "ISSUED_TO"])["QUANTITY"].sum().reset_index()
         total_usage = usage_summary["QUANTITY"].sum()
         
         if total_usage == 0:
@@ -149,28 +149,28 @@ def generate_allocation_chart(result_df, item_name):
     """
     Generate a bar chart for allocation results.
     """
+    # Create a summarized version for charting (by DEPARTMENT only)
+    chart_df = result_df.groupby("DEPARTMENT")["ALLOCATED_QUANTITY"].sum().reset_index()
+    
     # Create a bar chart
     fig = px.bar(
-        result_df, 
+        chart_df, 
         x="DEPARTMENT", 
         y="ALLOCATED_QUANTITY",
         text="ALLOCATED_QUANTITY",
-        color="PROPORTION",
-        color_continuous_scale="Viridis",
-        title=f"Allocation for {item_name}",
+        title=f"Allocation for {item_name} by Department",
         labels={
             "DEPARTMENT": "Department",
-            "ALLOCATED_QUANTITY": "Allocated Quantity",
-            "PROPORTION": "Proportion (%)"
+            "ALLOCATED_QUANTITY": "Allocated Quantity"
         },
-        height=400
+        height=400,
+        color_discrete_sequence=px.colors.qualitative.Vivid
     )
     
     # Customize the layout
     fig.update_layout(
         xaxis_title="Department",
-        yaxis_title="Allocated Quantity",
-        coloraxis_colorbar_title="Proportion (%)"
+        yaxis_title="Allocated Quantity"
     )
     
     return fig
@@ -264,6 +264,10 @@ with st.sidebar:
     st.markdown("### View Options")
     view_mode = st.radio("Select View", ["Allocation Calculator", "Data Overview"])
     
+    # Sub-department display option
+    st.markdown("### Display Options")
+    sub_dept_source = st.radio("Sub-Department Source", ["DEPARTMENT_CAT", "ISSUED_TO"])
+    
     st.markdown("---")
     st.markdown("<p class='footer'>Developed by Brown's Data Team, ©2025</p>", unsafe_allow_html=True)
 
@@ -307,17 +311,35 @@ if view_mode == "Allocation Calculator":
                     st.markdown("<div class='card'>", unsafe_allow_html=True)
                     st.markdown(f"<div class='result-header'><h3 style='color: #2E86C1;'>Allocation for {identifier}</h3></div>", unsafe_allow_html=True)
                     
+                    # Decide which sub-department column to show based on user preference
+                    sub_dept_col = sub_dept_source
+                    
                     # Format the output for better readability
-                    formatted_result = result.rename(columns={
+                    # Select and rename columns for display
+                    formatted_result = result[["DEPARTMENT", sub_dept_col, "PROPORTION", "ALLOCATED_QUANTITY"]].copy()
+                    formatted_result = formatted_result.rename(columns={
                         "DEPARTMENT": "Department", 
-                        "DEPARTMENT_CAT": "Department Category", 
+                        sub_dept_col: "Sub Department", 
                         "PROPORTION": "Proportion (%)",
                         "ALLOCATED_QUANTITY": "Allocated Quantity"
                     })
+                    
+                    # Format numeric columns
                     formatted_result["Proportion (%)"] = formatted_result["Proportion (%)"].round(2)
+                    formatted_result["Allocated Quantity"] = formatted_result["Allocated Quantity"].astype(int)
                     
                     # Display the result
                     st.dataframe(formatted_result, use_container_width=True)
+                    
+                    # Summary statistics
+                    st.markdown("#### Allocation Summary")
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        st.metric("Total Allocated", f"{formatted_result['Allocated Quantity'].sum():,.0f}")
+                    with col2:
+                        st.metric("Departments", f"{formatted_result['Department'].nunique()}")
+                    with col3:
+                        st.metric("Sub-Departments", f"{formatted_result['Sub Department'].nunique()}")
                     
                     # Add a download button for the result
                     csv = formatted_result.to_csv(index=False)
@@ -354,9 +376,12 @@ elif view_mode == "Data Overview":
     if selected_overview_dept:
         filtered_data = filtered_data[filtered_data["DEPARTMENT"].isin(selected_overview_dept)]
     
+    # Decide which sub-department column to show based on user preference
+    sub_dept_col = sub_dept_source
+    
     # Show data overview
     st.markdown("#### Filtered Data Preview")
-    display_columns = ["DATE", "ITEM NAME", "DEPARTMENT", "DEPARTMENT_CAT", "QUANTITY", "UNIT_OF_MEASURE"]
+    display_columns = ["DATE", "ITEM NAME", "DEPARTMENT", sub_dept_col, "QUANTITY", "UNIT_OF_MEASURE"]
     st.dataframe(filtered_data[display_columns].head(100), use_container_width=True)
     st.markdown("</div>", unsafe_allow_html=True)
     
