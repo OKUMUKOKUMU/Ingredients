@@ -129,7 +129,10 @@ def calculate_proportion(df, identifier, department=None):
         detailed_usage["PROPORTION"] = detailed_usage["DEPARTMENT"].map(dept_proportions)
         
         # Calculate relative quantity within each department (for sorting purposes)
-        detailed_usage["INTERNAL_WEIGHT"] = detailed_usage["QUANTITY"] / detailed_usage.groupby("DEPARTMENT")["QUANTITY"].transform('sum')
+        # Ensure we're using absolute values for QUANTITY to avoid negative weights
+        detailed_usage["QUANTITY_ABS"] = detailed_usage["QUANTITY"].abs()
+        dept_totals = detailed_usage.groupby("DEPARTMENT")["QUANTITY_ABS"].transform('sum')
+        detailed_usage["INTERNAL_WEIGHT"] = detailed_usage["QUANTITY_ABS"] / dept_totals
         
         # Sort by department proportion (descending) and then by internal weight (descending)
         detailed_usage.sort_values(by=["PROPORTION", "INTERNAL_WEIGHT"], ascending=[False, False], inplace=True)
@@ -148,7 +151,16 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
         return None
 
     # Calculate allocated quantity based on the department proportion
-    proportions["ALLOCATED_QUANTITY"] = (proportions["PROPORTION"] / 100) * available_quantity
+    # Use the absolute value of the proportion to ensure positive allocation
+    proportions["PROPORTION_ABS"] = proportions["PROPORTION"].abs()
+    
+    # Normalize proportions to ensure they sum to 100%
+    total_proportion = proportions["PROPORTION_ABS"].sum()
+    if total_proportion > 0:  # Prevent division by zero
+        proportions["PROPORTION_ABS"] = (proportions["PROPORTION_ABS"] / total_proportion) * 100
+    
+    # Calculate allocation based on normalized proportions
+    proportions["ALLOCATED_QUANTITY"] = (proportions["PROPORTION_ABS"] / 100) * available_quantity
     
     # Calculate allocated quantity for each department
     dept_allocation = proportions.groupby("DEPARTMENT")["ALLOCATED_QUANTITY"].sum().reset_index()
@@ -170,8 +182,18 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
             dept_total = adjusted_dept_allocations[dept]
             
             # Distribute the department allocation based on internal weights
+            # Ensure we're using positive weights
             group_copy = group.copy()
-            group_copy["ALLOCATED_QUANTITY"] = group_copy["INTERNAL_WEIGHT"] * dept_total
+            
+            # Normalize internal weights to sum to 1 within each department
+            group_internal_weights_sum = group_copy["INTERNAL_WEIGHT"].sum()
+            if group_internal_weights_sum > 0:  # Prevent division by zero
+                group_copy["INTERNAL_WEIGHT_NORM"] = group_copy["INTERNAL_WEIGHT"] / group_internal_weights_sum
+            else:
+                # If all weights are zero, distribute equally
+                group_copy["INTERNAL_WEIGHT_NORM"] = 1.0 / len(group_copy)
+                
+            group_copy["ALLOCATED_QUANTITY"] = group_copy["INTERNAL_WEIGHT_NORM"] * dept_total
             result_dfs.append(group_copy)
     
     if not result_dfs:
@@ -179,6 +201,9 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
         
     # Combine all department results
     final_result = pd.concat(result_dfs)
+    
+    # Ensure all allocated quantities are non-negative
+    final_result["ALLOCATED_QUANTITY"] = final_result["ALLOCATED_QUANTITY"].abs()
     
     # Round allocated quantities
     final_result["ALLOCATED_QUANTITY"] = final_result["ALLOCATED_QUANTITY"].round(0)
