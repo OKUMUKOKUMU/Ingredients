@@ -45,7 +45,7 @@ def connect_to_gsheet(client, spreadsheet_name, sheet_name):
         st.error(f"Failed to connect to Google Sheets: {e}")
         return None
 
-@st.experimental_memo(ttl=3600)
+@st.cache_data(ttl=300)
 def load_data_from_google_sheet(client, spreadsheet_name, sheet_name):
     """
     Load data from Google Sheets and cache it for 1 hour.
