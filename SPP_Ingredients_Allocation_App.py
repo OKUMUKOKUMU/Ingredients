@@ -156,7 +156,7 @@ def calculate_proportion(df, identifier, department=None):
     except Exception as e:
         st.error(f"Error calculating proportions: {e}")
         return None
-
+        
 def allocate_quantity(df, identifier, available_quantity, department=None):
     """
     Allocate quantity based on historical proportions.
@@ -228,7 +228,6 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
             final_result_df.at[index_max, "ALLOCATED_QUANTITY"] += difference
     
     return final_result_df
-
 # Streamlit UI
 st.set_page_config(
     page_title="SPP Ingredients Allocation App", 
