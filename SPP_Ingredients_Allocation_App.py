@@ -5,6 +5,7 @@ from oauth2client.service_account import ServiceAccountCredentials
 from dotenv import load_dotenv
 import os
 from datetime import datetime
+import plotly.express as px
 
 # Load environment variables
 load_dotenv()
@@ -108,16 +109,17 @@ def calculate_proportion(df, identifier, department=None):
             if filtered_df.empty:
                 return None
 
-        usage_summary = filtered_df.groupby("DEPARTMENT")["QUANTITY"].sum()
-        total_usage = usage_summary.sum()
+        # Group by DEPARTMENT and DEPARTMENT_CAT for combined view
+        usage_summary = filtered_df.groupby(["DEPARTMENT", "DEPARTMENT_CAT"])["QUANTITY"].sum().reset_index()
+        total_usage = usage_summary["QUANTITY"].sum()
         
         if total_usage == 0:
             return None
             
-        proportions = (usage_summary / total_usage) * 100
-        proportions.sort_values(ascending=False, inplace=True)
+        usage_summary["PROPORTION"] = (usage_summary["QUANTITY"] / total_usage) * 100
+        usage_summary.sort_values(by="PROPORTION", ascending=False, inplace=True)
 
-        return proportions.reset_index()
+        return usage_summary
     except Exception as e:
         st.error(f"Error calculating proportions: {e}")
         return None
@@ -130,43 +132,77 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
     if proportions is None:
         return None
 
-    proportions["Allocated Quantity"] = (proportions["QUANTITY"] / 100) * available_quantity
+    proportions["ALLOCATED_QUANTITY"] = (proportions["PROPORTION"] / 100) * available_quantity
 
     # Adjust to ensure the sum matches the input quantity
-    allocated_sum = proportions["Allocated Quantity"].sum()
+    allocated_sum = proportions["ALLOCATED_QUANTITY"].sum()
     if allocated_sum != available_quantity and len(proportions) > 0:
         difference = available_quantity - allocated_sum
-        index_max = proportions["Allocated Quantity"].idxmax()
-        proportions.at[index_max, "Allocated Quantity"] += difference
+        index_max = proportions["ALLOCATED_QUANTITY"].idxmax()
+        proportions.at[index_max, "ALLOCATED_QUANTITY"] += difference
 
-    proportions["Allocated Quantity"] = proportions["Allocated Quantity"].round(0)
+    proportions["ALLOCATED_QUANTITY"] = proportions["ALLOCATED_QUANTITY"].round(0)
 
     return proportions
 
+def generate_allocation_chart(result_df, item_name):
+    """
+    Generate a bar chart for allocation results.
+    """
+    # Create a bar chart
+    fig = px.bar(
+        result_df, 
+        x="DEPARTMENT", 
+        y="ALLOCATED_QUANTITY",
+        text="ALLOCATED_QUANTITY",
+        color="PROPORTION",
+        color_continuous_scale="Viridis",
+        title=f"Allocation for {item_name}",
+        labels={
+            "DEPARTMENT": "Department",
+            "ALLOCATED_QUANTITY": "Allocated Quantity",
+            "PROPORTION": "Proportion (%)"
+        },
+        height=400
+    )
+    
+    # Customize the layout
+    fig.update_layout(
+        xaxis_title="Department",
+        yaxis_title="Allocated Quantity",
+        coloraxis_colorbar_title="Proportion (%)"
+    )
+    
+    return fig
+
 # Streamlit UI
-st.set_page_config(page_title="SPP Ingredients Allocation App", layout="wide")
+st.set_page_config(
+    page_title="SPP Ingredients Allocation App", 
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
 
 st.markdown("""
     <style>
     .title {
         text-align: center;
-        font-size: 46px;
+        font-size: 32px;
         font-weight: bold;
         color: #FFC300;
         font-family: 'Amasis MT Pro', Arial, sans-serif;
-        margin-bottom: 10px;
+        margin-bottom: 5px;
     }
     .subtitle {
         text-align: center;
-        font-size: 18px;
+        font-size: 16px;
         color: #6c757d;
-        margin-bottom: 30px;
+        margin-bottom: 20px;
     }
     .footer {
         text-align: center;
-        font-size: 14px;
+        font-size: 12px;
         color: #888888;
-        margin-top: 40px;
+        margin-top: 30px;
     }
     .stButton button {
         background-color: #FFC300;
@@ -178,37 +214,67 @@ st.markdown("""
     }
     .result-header {
         background-color: #f8f9fa;
-        padding: 10px;
+        padding: 8px;
         border-radius: 5px;
-        margin-bottom: 10px;
+        margin-bottom: 8px;
+    }
+    .card {
+        background-color: #ffffff;
+        border-radius: 10px;
+        padding: 15px;
+        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        margin-bottom: 15px;
     }
     </style>
 """, unsafe_allow_html=True)
 
+# Sidebar
+with st.sidebar:
+    st.markdown("<h2 class='title'>SPP Ingredients Allocation</h2>", unsafe_allow_html=True)
+    st.markdown("<p class='subtitle'>Allocation Settings</p>", unsafe_allow_html=True)
+    
+    # Google Sheet credentials and details
+    SPREADSHEET_NAME = 'BROWNS STOCK MANAGEMENT'
+    SHEET_NAME = 'CHECK_OUT'
+    
+    # Load the data
+    if "data" not in st.session_state:
+        st.session_state.data = get_cached_data()
+    
+    data = st.session_state.data
+    
+    if data is None:
+        st.error("Failed to load data from Google Sheets. Please check your connection and credentials.")
+        st.stop()
+    
+    # Extract unique item names and departments for auto-suggestions
+    unique_item_names = sorted(data["ITEM NAME"].unique().tolist())
+    unique_departments = sorted(["All Departments"] + data["DEPARTMENT"].unique().tolist())
+    
+    st.markdown("### Quick Stats")
+    st.metric("Total Items", f"{len(unique_item_names)}")
+    st.metric("Total Departments", f"{len(unique_departments) - 1}")  # Exclude "All Departments"
+    
+    # Refresh data button
+    if st.button("Refresh Data"):
+        st.session_state.data = load_data_from_google_sheet()
+        st.success("Data refreshed successfully!")
+    
+    st.markdown("---")
+    st.markdown("### View Options")
+    view_mode = st.radio("Select View", ["Allocation Calculator", "Data Overview"])
+    
+    st.markdown("---")
+    st.markdown("<p class='footer'>Developed by Brown's Data Team, ©2025</p>", unsafe_allow_html=True)
+
+# Main content
 st.markdown("<h1 class='title'>SPP Ingredients Allocation App</h1>", unsafe_allow_html=True)
-st.markdown("<p class='subtitle'>Efficiently allocate ingredient stock across departments based on historical usage</p>", unsafe_allow_html=True)
 
-# Google Sheet credentials and details
-SPREADSHEET_NAME = 'BROWNS STOCK MANAGEMENT'
-SHEET_NAME = 'CHECK_OUT'
-
-# Load the data
-data = get_cached_data()
-
-if data is None:
-    st.error("Failed to load data from Google Sheets. Please check your connection and credentials.")
-    st.stop()
-
-# Extract unique item names and departments for auto-suggestions
-unique_item_names = sorted(data["ITEM NAME"].unique().tolist())
-unique_departments = sorted(["All Departments"] + data["DEPARTMENT"].unique().tolist())
-
-# Create tabs for different functionalities
-tab1, tab2 = st.tabs(["Allocation Calculator", "Data Overview"])
-
-with tab1:
+if view_mode == "Allocation Calculator":
     # Form Layout for Better UX
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("### Enter Items and Quantities")
+    
     with st.form("allocation_form"):
         num_items = st.number_input("Number of items to allocate", min_value=1, max_value=10, step=1, value=1)
         
@@ -222,12 +288,13 @@ with tab1:
             with col1:
                 identifier = st.selectbox(f"Select item {i+1}", unique_item_names, key=f"item_{i}")
             with col2:
-                available_quantity = st.number_input(f"Quantity for {identifier}:", min_value=0.1, step=0.1, key=f"qty_{i}")
+                available_quantity = st.number_input(f"Quantity:", min_value=0.1, step=0.1, key=f"qty_{i}")
 
             if identifier and available_quantity > 0:
                 entries.append((identifier, available_quantity))
 
         submitted = st.form_submit_button("Calculate Allocation")
+    st.markdown("</div>", unsafe_allow_html=True)
 
     # Processing Allocation
     if submitted:
@@ -237,10 +304,16 @@ with tab1:
             for identifier, available_quantity in entries:
                 result = allocate_quantity(data, identifier, available_quantity, selected_department)
                 if result is not None:
+                    st.markdown("<div class='card'>", unsafe_allow_html=True)
                     st.markdown(f"<div class='result-header'><h3 style='color: #2E86C1;'>Allocation for {identifier}</h3></div>", unsafe_allow_html=True)
                     
                     # Format the output for better readability
-                    formatted_result = result.rename(columns={"DEPARTMENT": "Department", "QUANTITY": "Proportion (%)"})
+                    formatted_result = result.rename(columns={
+                        "DEPARTMENT": "Department", 
+                        "DEPARTMENT_CAT": "Department Category", 
+                        "PROPORTION": "Proportion (%)",
+                        "ALLOCATED_QUANTITY": "Allocated Quantity"
+                    })
                     formatted_result["Proportion (%)"] = formatted_result["Proportion (%)"].round(2)
                     
                     # Display the result
@@ -254,10 +327,17 @@ with tab1:
                         file_name=f"{identifier}_allocation.csv",
                         mime="text/csv",
                     )
+                    
+                    # Show visualization
+                    chart = generate_allocation_chart(result, identifier)
+                    st.plotly_chart(chart, use_container_width=True)
+                    
+                    st.markdown("</div>", unsafe_allow_html=True)
                 else:
                     st.error(f"Item {identifier} not found in historical data or has no usage data for the selected department!")
 
-with tab2:
+elif view_mode == "Data Overview":
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("### Data Overview")
     
     # Filter options
@@ -276,9 +356,12 @@ with tab2:
     
     # Show data overview
     st.markdown("#### Filtered Data Preview")
-    st.dataframe(filtered_data[["DATE", "ITEM NAME", "DEPARTMENT", "QUANTITY", "UNIT_OF_MEASURE"]].head(100), use_container_width=True)
+    display_columns = ["DATE", "ITEM NAME", "DEPARTMENT", "DEPARTMENT_CAT", "QUANTITY", "UNIT_OF_MEASURE"]
+    st.dataframe(filtered_data[display_columns].head(100), use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
     
     # Simple statistics
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("#### Usage Statistics")
     total_usage = filtered_data["QUANTITY"].sum()
     unique_items_count = filtered_data["ITEM NAME"].nunique()
@@ -290,6 +373,19 @@ with tab2:
         st.metric("Unique Items", f"{unique_items_count}")
     with stat_col3:
         st.metric("Total Transactions", f"{len(filtered_data):,}")
-
-# Footnote
-st.markdown("<p class='footer'> Developed by Brown's Data Team, ©2025 </p>", unsafe_allow_html=True)
+    
+    # Usage by department visualization
+    if not filtered_data.empty:
+        st.markdown("#### Department Usage")
+        dept_usage = filtered_data.groupby("DEPARTMENT")["QUANTITY"].sum().reset_index()
+        dept_usage.sort_values(by="QUANTITY", ascending=False, inplace=True)
+        
+        fig = px.pie(
+            dept_usage, 
+            values="QUANTITY", 
+            names="DEPARTMENT", 
+            title="Usage Distribution by Department",
+            hole=0.4
+        )
+        st.plotly_chart(fig, use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
