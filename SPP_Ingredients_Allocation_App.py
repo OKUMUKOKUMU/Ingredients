@@ -102,6 +102,13 @@ def calculate_proportion(df, identifier, department=None):
         if filtered_df.empty:
             return None
 
+        # Apply department filter if specified
+        if department and department != "All Departments":
+            filtered_df = filtered_df[filtered_df["DEPARTMENT"] == department]
+            
+        if filtered_df.empty:
+            return None
+
         # Group by DEPARTMENT to calculate proportions at department level
         dept_usage = filtered_df.groupby("DEPARTMENT")["QUANTITY"].sum().reset_index()
         total_usage = dept_usage["QUANTITY"].sum()
@@ -115,7 +122,8 @@ def calculate_proportion(df, identifier, department=None):
         return dept_usage
     except Exception as e:
         st.error(f"Error calculating proportions: {e}")
-        return None   
+        return None
+
 def allocate_quantity(df, identifier, available_quantity, department=None):
     """
     Allocate quantity based on historical proportions.
@@ -132,61 +140,31 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
     if significant_proportions.empty:
         significant_proportions = proportions.nlargest(1, "DEPT_PROPORTION")
     
-    # Normalize department proportions to ensure they sum to 100%
-    dept_sum = significant_proportions.groupby("DEPARTMENT")["DEPT_PROPORTION"].first().sum()
-    
-    if dept_sum > 0:  # Prevent division by zero
-        normalize_factor = 100 / dept_sum
-        significant_proportions["DEPT_PROPORTION_NORMALIZED"] = significant_proportions["DEPT_PROPORTION"] * normalize_factor
+    # Normalize proportions to ensure they sum to 100%
+    total_proportion = significant_proportions["DEPT_PROPORTION"].sum()
+    if total_proportion > 0:
+        significant_proportions["NORMALIZED_PROPORTION"] = (significant_proportions["DEPT_PROPORTION"] / total_proportion) * 100
     else:
-        significant_proportions["DEPT_PROPORTION_NORMALIZED"] = 0
+        significant_proportions["NORMALIZED_PROPORTION"] = 0
     
-    # Calculate department-level allocations
-    dept_allocation = significant_proportions.groupby("DEPARTMENT").agg(
-        {"DEPT_PROPORTION_NORMALIZED": "first"}).reset_index()
-    dept_allocation["ALLOCATED_QUANTITY"] = (dept_allocation["DEPT_PROPORTION_NORMALIZED"] / 100) * available_quantity
+    # Calculate allocation based on normalized proportions
+    significant_proportions["ALLOCATED_QUANTITY"] = (significant_proportions["NORMALIZED_PROPORTION"] / 100) * available_quantity
     
-    # Create a dictionary of department allocations
-    dept_allocations = dict(zip(dept_allocation["DEPARTMENT"], dept_allocation["ALLOCATED_QUANTITY"]))
-    
-    # Now distribute the department allocation to each subdepartment based on its proportion within the department
-    final_result = []
-    for dept, group in significant_proportions.groupby("DEPARTMENT"):
-        if dept in dept_allocations:
-            dept_total_quantity = dept_allocations[dept]
-            dept_group = group.copy()
-            
-            # Ensure subdepartment proportions within each department sum to 100%
-            subdept_sum = dept_group["PROPORTION"].sum()
-            if subdept_sum > 0:
-                dept_group["PROPORTION_NORMALIZED"] = (dept_group["PROPORTION"] / subdept_sum) * 100
-            else:
-                # If proportions are zero, distribute equally
-                dept_group["PROPORTION_NORMALIZED"] = 100 / len(dept_group)
-            
-            # Distribute based on normalized subdepartment proportions
-            dept_group["ALLOCATED_QUANTITY"] = (dept_group["PROPORTION_NORMALIZED"] / 100) * dept_total_quantity
-            final_result.append(dept_group)
-    
-    if not final_result:
-        return None
-    
-    # Combine results
-    final_result_df = pd.concat(final_result)
-    
-    # Round allocated quantities to integers
-    final_result_df["ALLOCATED_QUANTITY"] = final_result_df["ALLOCATED_QUANTITY"].round(0).astype(int)
+    # Round allocated quantities
+    significant_proportions["ALLOCATED_QUANTITY"] = significant_proportions["ALLOCATED_QUANTITY"].round(0).astype(int)
     
     # Final adjustment to ensure the total matches the input exactly
-    total_allocated = final_result_df["ALLOCATED_QUANTITY"].sum()
-    if total_allocated != available_quantity and len(final_result_df) > 0:
+    total_allocated = significant_proportions["ALLOCATED_QUANTITY"].sum()
+    if total_allocated != available_quantity and len(significant_proportions) > 0:
         difference = int(available_quantity - total_allocated)
         
         if difference != 0:
-            index_max = final_result_df["ALLOCATED_QUANTITY"].idxmax()
-            final_result_df.at[index_max, "ALLOCATED_QUANTITY"] += difference
+            # Add the difference to the department with the highest proportion
+            index_max = significant_proportions["DEPT_PROPORTION"].idxmax()
+            significant_proportions.at[index_max, "ALLOCATED_QUANTITY"] += difference
     
-    return final_result_df
+    return significant_proportions[["DEPARTMENT", "DEPT_PROPORTION", "NORMALIZED_PROPORTION", "ALLOCATED_QUANTITY"]]
+    
 # Streamlit UI
 st.set_page_config(
     page_title="SPP Ingredients Allocation App", 
