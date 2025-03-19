@@ -9,148 +9,105 @@ from datetime import datetime
 # Load environment variables
 load_dotenv()
 
-def connect_to_gsheet(spreadsheet_name, sheet_name):
+def get_gsheet_client():
     """
-    Authenticate and connect to Google Sheets.
+    Authenticate and return the Google Sheets client.
     """
     scope = ["https://spreadsheets.google.com/feeds", 
              "https://www.googleapis.com/auth/spreadsheets",
              "https://www.googleapis.com/auth/drive.file", 
              "https://www.googleapis.com/auth/drive"]
     
-    try:
-        credentials = {
-            "type": "service_account",
-            "project_id": os.getenv("GOOGLE_PROJECT_ID"),
-            "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
-            "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace("\\n", "\n"),
-            "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
-            "client_id": os.getenv("GOOGLE_CLIENT_ID"),
-            "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
-            "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
-            "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_X509_CERT_URL"),
-            "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL")
-        }
+    credentials = {
+        "type": "service_account",
+        "project_id": os.getenv("GOOGLE_PROJECT_ID"),
+        "private_key_id": os.getenv("GOOGLE_PRIVATE_KEY_ID"),
+        "private_key": os.getenv("GOOGLE_PRIVATE_KEY").replace("\\n", "\n"),
+        "client_email": os.getenv("GOOGLE_CLIENT_EMAIL"),
+        "client_id": os.getenv("GOOGLE_CLIENT_ID"),
+        "auth_uri": os.getenv("GOOGLE_AUTH_URI"),
+        "token_uri": os.getenv("GOOGLE_TOKEN_URI"),
+        "auth_provider_x509_cert_url": os.getenv("GOOGLE_AUTH_PROVIDER_X509_CERT_URL"),
+        "client_x509_cert_url": os.getenv("GOOGLE_CLIENT_X509_CERT_URL")
+    }
 
-        client_credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials, scope)
-        client = gspread.authorize(client_credentials)
-        spreadsheet = client.open(spreadsheet_name)  
-        return spreadsheet.worksheet(sheet_name)  # Access specific sheet by name
+    client_credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials, scope)
+    return gspread.authorize(client_credentials)
+
+def connect_to_gsheet(client, spreadsheet_name, sheet_name):
+    """
+    Connect to a specific Google Sheet by name.
+    """
+    try:
+        spreadsheet = client.open(spreadsheet_name)
+        return spreadsheet.worksheet(sheet_name)
     except Exception as e:
         st.error(f"Failed to connect to Google Sheets: {e}")
         return None
 
-def load_data_from_google_sheet():
+@st.experimental_memo(ttl=3600)
+def load_data_from_google_sheet(client, spreadsheet_name, sheet_name):
     """
-    Load data from Google Sheets.
+    Load data from Google Sheets and cache it for 1 hour.
     """
-    with st.spinner("Loading data from Google Sheets..."):
-        try:
-            worksheet = connect_to_gsheet(SPREADSHEET_NAME, SHEET_NAME)
-            if worksheet is None:
-                return None
-            
-            # Get all records from the Google Sheet
-            data = worksheet.get_all_records()
-            
-            if not data:
-                st.error("No data found in the Google Sheet.")
-                return None
-
-            # Convert data to DataFrame
-            df = pd.DataFrame(data)
-
-            # Ensure columns match the updated Google Sheets structure
-            df.columns = ["DATE", "ITEM_SERIAL", "ITEM NAME", "DEPARTMENT", "ISSUED_TO", "QUANTITY", 
-                        "UNIT_OF_MEASURE", "ITEM_CATEGORY", "WEEK", "REFERENCE", 
-                        "DEPARTMENT_CAT", "BATCH NO.", "STORE", "RECEIVED BY"]
-
-            # Convert date and numeric columns
-            df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce")
-            df["QUANTITY"] = pd.to_numeric(df["QUANTITY"], errors="coerce")
-            df.dropna(subset=["QUANTITY"], inplace=True)
-            
-            # Extract quarter information
-            df["QUARTER"] = df["DATE"].dt.to_period("Q")
-
-            # Filter data for 2024 onwards
-            current_year = datetime.now().year
-            df = df[df["DATE"].dt.year >= current_year - 1]  # Data from last year onwards
-
-            return df
-        except Exception as e:
-            st.error(f"Error loading data: {e}")
+    try:
+        worksheet = connect_to_gsheet(client, spreadsheet_name, sheet_name)
+        if worksheet is None:
+            return None
+        
+        data = worksheet.get_all_records()
+        if not data:
+            st.error("No data found in the Google Sheet.")
             return None
 
-@st.cache_data(ttl=3600)  # Cache data for 1 hour
-def get_cached_data():
-    return load_data_from_google_sheet()
+        df = pd.DataFrame(data)
+        df.columns = ["DATE", "ITEM_SERIAL", "ITEM NAME", "DEPARTMENT", "ISSUED_TO", "QUANTITY", 
+                      "UNIT_OF_MEASURE", "ITEM_CATEGORY", "WEEK", "REFERENCE", 
+                      "DEPARTMENT_CAT", "BATCH NO.", "STORE", "RECEIVED BY"]
+
+        df["DATE"] = pd.to_datetime(df["DATE"], errors="coerce")
+        df["QUANTITY"] = pd.to_numeric(df["QUANTITY"], errors="coerce")
+        df.dropna(subset=["QUANTITY"], inplace=True)
+        df["QUARTER"] = df["DATE"].dt.to_period("Q")
+
+        current_year = datetime.now().year
+        df = df[df["DATE"].dt.year >= current_year - 1]
+
+        return df
+    except Exception as e:
+        st.error(f"Error loading data: {e}")
+        return None
 
 def calculate_proportion(df, identifier, department=None):
     """
-    Calculate department-wise usage proportion AND subdepartment proportions within departments.
+    Calculate department-wise usage proportion and subdepartment proportions within departments.
     """
     if df is None:
         return None
     
     try:
-        if identifier.isnumeric():
-            filtered_df = df[df["ITEM_SERIAL"].astype(str).str.lower() == identifier.lower()]
-        else:
-            filtered_df = df[df["ITEM NAME"].str.lower() == identifier.lower()]
-
+        filtered_df = df[df["ITEM NAME"].str.lower() == identifier.lower()] if not identifier.isnumeric() else df[df["ITEM_SERIAL"].astype(str).str.lower() == identifier.lower()]
         if filtered_df.empty:
             return None
 
-        # If department is specified, filter by department
         if department and department != "All Departments":
             filtered_df = filtered_df[filtered_df["DEPARTMENT"] == department]
             if filtered_df.empty:
                 return None
 
-        # First group by DEPARTMENT only to calculate proportions at department level
         dept_usage = filtered_df.groupby("DEPARTMENT")["QUANTITY"].sum().reset_index()
         total_usage = dept_usage["QUANTITY"].sum()
-        
         if total_usage == 0:
             return None
             
-        # Calculate department-level proportions (out of 100%)
         dept_usage["DEPT_PROPORTION"] = (dept_usage["QUANTITY"] / total_usage) * 100
-        
-        # Create a dictionary of department proportions for reference
         dept_proportions = dict(zip(dept_usage["DEPARTMENT"], dept_usage["DEPT_PROPORTION"]))
         
-        # Now create detailed DataFrame with subdepartment info
-        # Keep DEPARTMENT, subdepartment columns, and sum quantities
         detailed_usage = filtered_df.groupby(["DEPARTMENT", "DEPARTMENT_CAT", "ISSUED_TO"])["QUANTITY"].sum().reset_index()
-        
-        # Assign the department-level proportion to each row (for department-level allocation)
         detailed_usage["DEPT_PROPORTION"] = detailed_usage["DEPARTMENT"].map(dept_proportions)
-        
-        # Calculate subdepartment proportions within each department
-        detailed_usage["PROPORTION"] = 0.0  # Initialize the column
-        
-        # For each department, calculate the proportion of each subdepartment
-        for dept in detailed_usage["DEPARTMENT"].unique():
-            dept_mask = detailed_usage["DEPARTMENT"] == dept
-            dept_total = detailed_usage.loc[dept_mask, "QUANTITY"].sum()
-            
-            if dept_total > 0:
-                # Calculate proportion within this department (out of 100%)
-                detailed_usage.loc[dept_mask, "PROPORTION"] = (detailed_usage.loc[dept_mask, "QUANTITY"] / dept_total) * 100
-            else:
-                # If quantities are zero, distribute equally
-                num_subdepts = detailed_usage.loc[dept_mask].shape[0]
-                detailed_usage.loc[dept_mask, "PROPORTION"] = 100.0 / num_subdepts if num_subdepts > 0 else 0.0
-        
-        # Calculate relative quantity within each department (for sorting purposes)
-        detailed_usage["QUANTITY_ABS"] = detailed_usage["QUANTITY"].abs()
-        dept_totals = detailed_usage.groupby("DEPARTMENT")["QUANTITY_ABS"].transform('sum')
-        detailed_usage["INTERNAL_WEIGHT"] = detailed_usage["QUANTITY_ABS"] / dept_totals
-        
-        # Sort by department proportion (descending) and then by internal weight (descending)
-        detailed_usage.sort_values(by=["DEPT_PROPORTION", "INTERNAL_WEIGHT"], ascending=[False, False], inplace=True)
+        detailed_usage["PROPORTION"] = detailed_usage.groupby("DEPARTMENT")["QUANTITY"].transform(lambda x: (x / x.sum()) * 100)
+
+        detailed_usage.sort_values(by=["DEPT_PROPORTION", "PROPORTION"], ascending=[False, False], inplace=True)
         
         return detailed_usage
     except Exception as e:
@@ -166,63 +123,38 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
     if proportions is None:
         return None
 
-    # Filter out departments with less than 1% proportion based on DEPT_PROPORTION
     significant_proportions = proportions[proportions["DEPT_PROPORTION"].abs() >= 1.0]
-    
-    # If all departments have less than 1%, keep the one with the highest proportion
     if significant_proportions.empty:
         significant_proportions = proportions.nlargest(1, "DEPT_PROPORTION")
     
-    # Normalize department proportions to ensure they sum to 100%
     dept_sum = significant_proportions.groupby("DEPARTMENT")["DEPT_PROPORTION"].first().sum()
-    
-    if dept_sum > 0:  # Prevent division by zero
+    if dept_sum > 0:
         normalize_factor = 100 / dept_sum
         significant_proportions["DEPT_PROPORTION_NORMALIZED"] = significant_proportions["DEPT_PROPORTION"] * normalize_factor
     else:
         significant_proportions["DEPT_PROPORTION_NORMALIZED"] = 0
     
-    # Calculate department-level allocations
-    dept_allocation = significant_proportions.groupby("DEPARTMENT").agg(
-        {"DEPT_PROPORTION_NORMALIZED": "first"}).reset_index()
+    dept_allocation = significant_proportions.groupby("DEPARTMENT").agg({"DEPT_PROPORTION_NORMALIZED": "first"}).reset_index()
     dept_allocation["ALLOCATED_QUANTITY"] = (dept_allocation["DEPT_PROPORTION_NORMALIZED"] / 100) * available_quantity
-    
-    # Create a dictionary of department allocations
     dept_allocations = dict(zip(dept_allocation["DEPARTMENT"], dept_allocation["ALLOCATED_QUANTITY"]))
     
-    # Now distribute the department allocation to each subdepartment based on its proportion within the department
     final_result = []
     for dept, group in significant_proportions.groupby("DEPARTMENT"):
         if dept in dept_allocations:
             dept_total_quantity = dept_allocations[dept]
-            dept_group = group.copy()
-            
-            # Ensure subdepartment proportions within each department sum to 100%
-            subdept_sum = dept_group["PROPORTION"].sum()
-            if subdept_sum > 0:
-                dept_group["PROPORTION_NORMALIZED"] = (dept_group["PROPORTION"] / subdept_sum) * 100
-            else:
-                # If proportions are zero, distribute equally
-                dept_group["PROPORTION_NORMALIZED"] = 100 / len(dept_group)
-            
-            # Distribute based on normalized subdepartment proportions
-            dept_group["ALLOCATED_QUANTITY"] = (dept_group["PROPORTION_NORMALIZED"] / 100) * dept_total_quantity
-            final_result.append(dept_group)
+            group["PROPORTION_NORMALIZED"] = group["PROPORTION"] / group["PROPORTION"].sum() * 100
+            group["ALLOCATED_QUANTITY"] = (group["PROPORTION_NORMALIZED"] / 100) * dept_total_quantity
+            final_result.append(group)
     
     if not final_result:
         return None
     
-    # Combine results
     final_result_df = pd.concat(final_result)
-    
-    # Round allocated quantities to integers
     final_result_df["ALLOCATED_QUANTITY"] = final_result_df["ALLOCATED_QUANTITY"].round(0).astype(int)
     
-    # Final adjustment to ensure the total matches the input exactly
     total_allocated = final_result_df["ALLOCATED_QUANTITY"].sum()
     if total_allocated != available_quantity and len(final_result_df) > 0:
         difference = int(available_quantity - total_allocated)
-        
         if difference != 0:
             index_max = final_result_df["ALLOCATED_QUANTITY"].idxmax()
             final_result_df.at[index_max, "ALLOCATED_QUANTITY"] += difference
@@ -287,38 +219,27 @@ with st.sidebar:
     st.markdown("<h2 class='title'>SPP Ingredients Allocation</h2>", unsafe_allow_html=True)
     st.markdown("<p class='subtitle'>Allocation Settings</p>", unsafe_allow_html=True)
     
-    # Google Sheet credentials and details
     SPREADSHEET_NAME = 'BROWNS STOCK MANAGEMENT'
     SHEET_NAME = 'CHECK_OUT'
     
-    # Load the data
-    if "data" not in st.session_state:
-        st.session_state.data = get_cached_data()
-    
-    data = st.session_state.data
+    client = get_gsheet_client()
+    data = load_data_from_google_sheet(client, SPREADSHEET_NAME, SHEET_NAME)
     
     if data is None:
         st.error("Failed to load data from Google Sheets. Please check your connection and credentials.")
         st.stop()
     
-    # Extract unique item names and departments for auto-suggestions
     unique_item_names = sorted(data["ITEM NAME"].unique().tolist())
     unique_departments = sorted(["All Departments"] + data["DEPARTMENT"].unique().tolist())
     
     st.markdown("### Quick Stats")
     st.metric("Total Items", f"{len(unique_item_names)}")
-    st.metric("Total Departments", f"{len(unique_departments) - 1}")  # Exclude "All Departments"
-    
-    # Refresh data button
-    if st.button("Refresh Data"):
-        st.session_state.data = load_data_from_google_sheet()
-        st.success("Data refreshed successfully!")
+    st.metric("Total Departments", f"{len(unique_departments) - 1}")
     
     st.markdown("---")
     st.markdown("### View Options")
     view_mode = st.radio("Select View", ["Allocation Calculator", "Data Overview"])
     
-    # Sub-department display option
     st.markdown("### Display Options")
     sub_dept_source = st.radio("Sub-Department Source", ["DEPARTMENT_CAT", "ISSUED_TO"])
     
@@ -329,14 +250,12 @@ with st.sidebar:
 st.markdown("<h1 class='title'>SPP Ingredients Allocation App</h1>", unsafe_allow_html=True)
 
 if view_mode == "Allocation Calculator":
-    # Form Layout for Better UX
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("### Enter Items and Quantities")
     
     with st.form("allocation_form"):
         num_items = st.number_input("Number of items to allocate", min_value=1, max_value=10, step=1, value=1)
         
-        # Department selection
         selected_department = st.selectbox("Filter by Department (optional)", unique_departments)
 
         entries = []
@@ -354,7 +273,6 @@ if view_mode == "Allocation Calculator":
         submitted = st.form_submit_button("Calculate Allocation")
     st.markdown("</div>", unsafe_allow_html=True)
 
-    # Processing Allocation
     if submitted:
         if not entries:
             st.warning("Please enter at least one valid item and quantity!")
@@ -365,17 +283,10 @@ if view_mode == "Allocation Calculator":
                     st.markdown("<div class='card'>", unsafe_allow_html=True)
                     st.markdown(f"<div class='result-header'><h3 style='color: #2E86C1;'>Allocation for {identifier}</h3></div>", unsafe_allow_html=True)
                     
-                    # Calculate the total allocated quantity to verify it matches the input
                     total_allocated = result["ALLOCATED_QUANTITY"].sum()
-                    
-                    # Display a message indicating the total allocated matches the input
                     st.markdown(f"**Total Allocated: {total_allocated:.0f}** (Input: {available_quantity:.0f})")
                     
-                    # Decide which sub-department column to show based on user preference
                     sub_dept_col = sub_dept_source
-                    
-                    # Format the output for better readability
-                    # Select and rename columns for display
                     formatted_result = result[["DEPARTMENT", sub_dept_col, "PROPORTION_NORMALIZED", "ALLOCATED_QUANTITY"]].copy()
                     formatted_result = formatted_result.rename(columns={
                         "DEPARTMENT": "Department", 
@@ -384,13 +295,9 @@ if view_mode == "Allocation Calculator":
                         "ALLOCATED_QUANTITY": "Allocated Quantity"
                     })
                     
-                    # Format numeric columns
                     formatted_result["Proportion (%)"] = formatted_result["Proportion (%)"].round(2)
-                    
-                    # Display the result
                     st.dataframe(formatted_result, use_container_width=True)
                     
-                    # Summary statistics
                     st.markdown("#### Allocation Summary")
                     col1, col2, col3 = st.columns(3)
                     with col1:
@@ -400,7 +307,6 @@ if view_mode == "Allocation Calculator":
                     with col3:
                         st.metric("Sub-Departments", f"{formatted_result['Sub Department'].nunique()}")
                     
-                    # Add a download button for the result
                     csv = formatted_result.to_csv(index=False)
                     st.download_button(
                         label="Download Allocation as CSV",
@@ -417,24 +323,35 @@ elif view_mode == "Data Overview":
     st.markdown("<div class='card'>", unsafe_allow_html=True)
     st.markdown("### Data Overview")
     
-    # Filter options
     col1, col2 = st.columns(2)
     with col1:
         selected_items = st.multiselect("Filter by Items", unique_item_names, default=[])
     with col2:
-        selected_overview_dept = st.multiselect("Filter by Departments", unique_departments[1:], default=[])  # Exclude "All Departments"
+        selected_overview_dept = st.multiselect("Filter by Departments", unique_departments[1:], default=[])
     
-    # Apply filters
     filtered_data = data.copy()
     if selected_items:
         filtered_data = filtered_data[filtered_data["ITEM NAME"].isin(selected_items)]
     if selected_overview_dept:
         filtered_data = filtered_data[filtered_data["DEPARTMENT"].isin(selected_overview_dept)]
     
-    # Decide which sub-department column to show based on user preference
     sub_dept_col = sub_dept_source
-    
-    # Show data overview
     st.markdown("#### Filtered Data Preview")
     display_columns = ["DATE", "ITEM NAME", "DEPARTMENT", sub_dept_col, "QUANTITY", "UNIT_OF_MEASURE"]
-    st.dataframe(filtered_data[display_columns].head(100), use_container_width
+    st.dataframe(filtered_data[display_columns].head(100), use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    
+    st.markdown("<div class='card'>", unsafe_allow_html=True)
+    st.markdown("#### Usage Statistics")
+    total_usage = filtered_data["QUANTITY"].sum()
+    unique_items_count = filtered_data["ITEM NAME"].nunique()
+    
+    stat_col1, stat_col2, stat_col3 = st.columns(3)
+    with stat_col1:
+        st.metric("Total Quantity Used", f"{total_usage:,.2f}")
+    with stat_col2:
+        st.metric("Unique Items", f"{unique_items_count}")
+    with stat_col3:
+        st.metric("Total Transactions", f"{len(filtered_data):,}")
+    
+    st.markdown("</div>", unsafe_allow_html=True)
