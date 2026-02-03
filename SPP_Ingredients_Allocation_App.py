@@ -146,7 +146,7 @@ def calculate_proportion(df, identifier, department=None, min_proportion=1.0):
             return None
         
         # Filter by department if specified
-        if department and department != "All Departments":
+        if department and department != "All Production Areas":
             filtered_df = filtered_df[filtered_df["DEPARTMENT"] == department]
             if filtered_df.empty:
                 return None
@@ -221,10 +221,10 @@ def allocate_quantity(df, identifier, available_quantity, department=None):
 
 def generate_allocation_chart(result_df, item_name):
     """
-    Generate allocation chart with cheese theme colors.
+    Generate allocation chart with lighter cheese theme colors.
     """
-    # Cheese-inspired color palette
-    cheese_colors = ['#FFD700', '#F4A460', '#DAA520', '#CD853F', '#8B4513', '#A0522D']
+    # Lighter, more appetizing cheese color palette
+    cheese_colors = ['#FFE4B5', '#FFDAB9', '#FFE4C4', '#FAEBD7', '#F5F5DC', '#FFF8DC']
     
     fig = px.bar(
         result_df,
@@ -237,17 +237,17 @@ def generate_allocation_chart(result_df, item_name):
     )
     
     fig.update_layout(
-        xaxis_title="Department",
+        xaxis_title="Production Area",
         yaxis_title="Allocated Quantity",
         xaxis_tickangle=-45,
-        plot_bgcolor='#FFF8E7',
-        paper_bgcolor='#FFF8E7',
-        font=dict(color='#5D4037')
+        plot_bgcolor='#FFFDF6',
+        paper_bgcolor='#FFFDF6',
+        font=dict(color='#6B4226', family='Arial')
     )
     
     return fig
 
-# Streamlit App with Cheese Manufacturing Theme
+# Streamlit App with Lighter Cheese Manufacturing Theme
 st.set_page_config(
     page_title="Brown's Cheese - Ingredients Allocation",
     layout="wide",
@@ -255,194 +255,261 @@ st.set_page_config(
     page_icon="🧀"
 )
 
-# Custom CSS with Cheese/Dairy Theme
+# Custom CSS with Lighter, Softer Cheese/Dairy Theme
 st.markdown("""
 <style>
-    /* Main theme colors */
+    /* Lighter, softer color palette */
     :root {
-        --primary-yellow: #FFD700;
-        --cheese-yellow: #F4A460;
-        --golden-brown: #DAA520;
-        --cheese-orange: #CD853F;
-        --brown: #8B4513;
-        --dark-brown: #5D4037;
-        --cream: #FFF8E7;
-        --light-cream: #FFFDF6;
-        --milk-white: #F8F4E9;
+        --cream-yellow: #FFF8E1;
+        --light-cheese: #FFE4B5;
+        --soft-gold: #FFDAB9;
+        --warm-beige: #FAEBD7;
+        --ivory: #F5F5DC;
+        --light-brown: #D2B48C;
+        --medium-brown: #8B7355;
+        --soft-brown: #A67B5B;
+        --milk-white: #FFFDF6;
+        --off-white: #FAF9F6;
     }
     
     .main-title {
         text-align: center;
-        color: var(--dark-brown);
+        color: var(--medium-brown);
         padding: 25px;
-        background: linear-gradient(135deg, var(--cheese-yellow) 0%, var(--cheese-orange) 100%);
+        background: linear-gradient(135deg, var(--light-cheese) 0%, var(--soft-gold) 100%);
         border-radius: 15px;
         margin-bottom: 30px;
-        border: 3px solid var(--golden-brown);
+        border: 2px solid var(--light-brown);
         font-family: 'Georgia', serif;
+        box-shadow: 0 4px 12px rgba(139, 115, 85, 0.1);
     }
     
     .main-title h1 {
-        font-size: 42px;
+        font-size: 38px;
         font-weight: bold;
-        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+        text-shadow: 1px 1px 2px rgba(255, 255, 255, 0.8);
         margin-bottom: 10px;
+        color: var(--medium-brown);
     }
     
     .main-title p {
-        font-size: 18px;
-        color: var(--dark-brown);
+        font-size: 16px;
+        color: var(--soft-brown);
         font-weight: 500;
     }
     
     .card {
-        background: var(--light-cream);
+        background: var(--milk-white);
         padding: 25px;
-        border-radius: 15px;
-        box-shadow: 0 6px 12px rgba(139, 69, 19, 0.1);
+        border-radius: 12px;
+        box-shadow: 0 4px 8px rgba(210, 180, 140, 0.1);
         margin-bottom: 25px;
-        border: 2px solid var(--cheese-yellow);
+        border: 1px solid var(--warm-beige);
         font-family: 'Arial', sans-serif;
     }
     
     .card h3 {
-        color: var(--brown);
-        border-bottom: 2px solid var(--cheese-yellow);
+        color: var(--medium-brown);
+        border-bottom: 1px solid var(--light-cheese);
         padding-bottom: 10px;
         margin-bottom: 20px;
         font-family: 'Georgia', serif;
+        font-weight: 600;
     }
     
     .stButton>button {
-        background: linear-gradient(135deg, var(--cheese-yellow) 0%, var(--cheese-orange) 100%);
-        color: var(--dark-brown) !important;
-        border: 2px solid var(--golden-brown);
-        padding: 12px 24px;
+        background: linear-gradient(135deg, var(--light-cheese) 0%, var(--soft-gold) 100%);
+        color: var(--medium-brown) !important;
+        border: 1px solid var(--light-brown);
+        padding: 10px 20px;
         border-radius: 8px;
-        font-weight: bold;
-        font-size: 16px;
+        font-weight: 600;
+        font-size: 14px;
         transition: all 0.3s ease;
     }
     
     .stButton>button:hover {
-        background: linear-gradient(135deg, var(--golden-brown) 0%, var(--brown) 100%);
-        color: white !important;
-        border-color: var(--dark-brown);
+        background: linear-gradient(135deg, var(--soft-gold) 0%, var(--light-brown) 100%);
+        color: var(--medium-brown) !important;
+        border-color: var(--soft-brown);
         transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(139, 69, 19, 0.2);
+        box-shadow: 0 4px 8px rgba(139, 115, 85, 0.15);
     }
     
     .sidebar-header {
-        background: linear-gradient(135deg, var(--cheese-yellow) 0%, var(--cheese-orange) 100%);
-        padding: 20px;
+        background: linear-gradient(135deg, var(--light-cheese) 0%, var(--warm-beige) 100%);
+        padding: 15px;
         border-radius: 10px;
         margin-bottom: 20px;
         text-align: center;
-        border: 2px solid var(--golden-brown);
+        border: 1px solid var(--soft-gold);
     }
     
     .sidebar-header h2 {
-        color: var(--dark-brown);
+        color: var(--medium-brown);
         margin: 0;
         font-family: 'Georgia', serif;
+        font-size: 22px;
     }
     
     .metric-card {
-        background: var(--cream);
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid var(--cheese-yellow);
-        margin-bottom: 10px;
+        background: var(--off-white);
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid var(--warm-beige);
+        margin-bottom: 8px;
+        font-size: 14px;
     }
     
     .stMetric {
-        background: var(--milk-white);
-        padding: 15px;
-        border-radius: 10px;
-        border: 1px solid var(--cheese-yellow);
+        background: var(--off-white);
+        padding: 12px;
+        border-radius: 8px;
+        border: 1px solid var(--warm-beige);
+    }
+    
+    [data-testid="stMetricValue"] {
+        color: var(--medium-brown) !important;
+        font-weight: 600;
+    }
+    
+    [data-testid="stMetricLabel"] {
+        color: var(--soft-brown) !important;
     }
     
     .data-warning {
         background-color: #FFF3CD;
-        border: 2px solid #FFD700;
+        border: 1px solid var(--soft-gold);
         color: #856404;
-        padding: 15px;
-        border-radius: 10px;
-        margin: 15px 0;
-        font-weight: bold;
+        padding: 12px;
+        border-radius: 8px;
+        margin: 10px 0;
+        font-size: 14px;
     }
     
-    .stSelectbox, .stNumberInput, .stMultiselect, .stDateInput {
-        background-color: var(--cream);
-        border-radius: 8px;
+    /* Input field styling */
+    .stSelectbox div[data-baseweb="select"] > div,
+    .stNumberInput input,
+    .stMultiselect div[data-baseweb="select"] > div,
+    .stDateInput input {
+        background-color: var(--off-white) !important;
+        border-color: var(--warm-beige) !important;
+        border-radius: 6px !important;
     }
     
     /* Custom scrollbar */
     ::-webkit-scrollbar {
-        width: 10px;
+        width: 8px;
     }
     
     ::-webkit-scrollbar-track {
-        background: var(--cream);
+        background: var(--off-white);
     }
     
     ::-webkit-scrollbar-thumb {
-        background: var(--cheese-yellow);
-        border-radius: 5px;
+        background: var(--light-brown);
+        border-radius: 4px;
     }
     
     ::-webkit-scrollbar-thumb:hover {
-        background: var(--golden-brown);
+        background: var(--soft-brown);
     }
     
     /* Footer styling */
     .footer {
         text-align: center;
-        color: var(--dark-brown);
+        color: var(--medium-brown);
         padding: 20px;
-        margin-top: 40px;
-        border-top: 2px solid var(--cheese-yellow);
-        background: var(--cream);
+        margin-top: 30px;
+        border-top: 1px solid var(--light-cheese);
+        background: var(--off-white);
         border-radius: 10px;
         font-family: 'Georgia', serif;
     }
     
-    /* Cheese icon animations */
-    @keyframes cheeseSpin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-    }
-    
+    /* Cheese icon */
     .cheese-icon {
-        animation: cheeseSpin 20s linear infinite;
-        display: inline-block;
+        color: var(--medium-brown);
     }
     
     /* Success messages */
     .stSuccess {
-        background-color: #E8F5E9;
-        border-color: #4CAF50;
+        background-color: #F0F9EB !important;
+        border-color: #B7EB8F !important;
+        color: #52C41A !important;
     }
     
     /* Info messages */
     .stInfo {
-        background-color: #E3F2FD;
-        border-color: #2196F3;
+        background-color: #E6F7FF !important;
+        border-color: #91D5FF !important;
+        color: #1890FF !important;
     }
     
-    /* Cheese pattern background */
+    /* Warning messages */
+    .stWarning {
+        background-color: #FFFBE6 !important;
+        border-color: #FFE58F !important;
+        color: #FAAD14 !important;
+    }
+    
+    /* Error messages */
+    .stError {
+        background-color: #FFF2F0 !important;
+        border-color: #FFCCC7 !important;
+        color: #FF4D4F !important;
+    }
+    
+    /* App background */
     .stApp {
-        background: linear-gradient(135deg, var(--milk-white) 0%, var(--cream) 100%);
+        background: linear-gradient(180deg, var(--milk-white) 0%, var(--off-white) 100%);
+    }
+    
+    /* Radio button styling */
+    .stRadio > div {
+        background: var(--off-white);
+        padding: 10px;
+        border-radius: 8px;
+        border: 1px solid var(--warm-beige);
+    }
+    
+    /* Dataframe styling */
+    .dataframe {
+        border: 1px solid var(--warm-beige) !important;
+        border-radius: 8px !important;
+    }
+    
+    /* Tabs styling */
+    .stTabs [data-baseweb="tab-list"] {
+        background: var(--off-white);
+        border-radius: 8px;
+        padding: 5px;
+    }
+    
+    /* Make text more readable */
+    p, li, span, div {
+        color: var(--medium-brown);
+    }
+    
+    /* Table headers */
+    th {
+        background-color: var(--warm-beige) !important;
+        color: var(--medium-brown) !important;
+    }
+    
+    /* Table rows */
+    tr:nth-child(even) {
+        background-color: var(--off-white) !important;
     }
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar with Cheese Theme
+# Sidebar with Lighter Cheese Theme
 with st.sidebar:
     st.markdown("""
         <div class="sidebar-header">
             <h2>🧀 Brown's Cheese</h2>
-            <p style="color: var(--dark-brown); margin: 5px 0 0 0; font-weight: bold;">Ingredients Allocation System</p>
+            <p style="color: var(--soft-brown); margin: 5px 0 0 0; font-size: 14px;">Ingredients Allocation</p>
         </div>
     """, unsafe_allow_html=True)
     
@@ -450,29 +517,24 @@ with st.sidebar:
     
     # Load data
     if "data" not in st.session_state:
-        with st.spinner("Loading cheese production data..."):
+        with st.spinner("Loading production data..."):
             st.session_state.data = get_cached_data()
     
     data = st.session_state.data
     
     if data is None or data.empty:
-        st.error("⚠️ Failed to load production data")
+        st.error("⚠️ Failed to load data")
         
-        # Debug options
-        with st.expander("🔧 Technical Diagnostics"):
-            if st.button("🧀 Test Cheese Database Connection"):
+        with st.expander("Technical Support"):
+            if st.button("Test Connection"):
                 try:
                     worksheet = connect_to_gsheet()
                     if worksheet:
-                        st.success("✓ Connection to Production Database Successful!")
-                        all_values = worksheet.get_all_values()
-                        if all_values:
-                            st.write(f"🧾 Total Records: {len(all_values)}")
-                            st.write(f"🏭 Departments Tracked: {len(set([row[3] for row in all_values[1:10] if len(row) > 3]))}")
+                        st.success("✓ Connection successful!")
                 except Exception as e:
-                    st.error(f"✗ Connection Error: {e}")
+                    st.error(f"✗ Error: {e}")
             
-            if st.button("🔄 Reload Production Data"):
+            if st.button("Reload Data"):
                 st.cache_data.clear()
                 st.session_state.data = load_data_from_google_sheet()
                 st.rerun()
@@ -483,40 +545,35 @@ with st.sidebar:
     unique_items = sorted(data["ITEM_NAME"].dropna().unique().tolist())
     unique_depts = sorted(["All Production Areas"] + data["DEPARTMENT"].dropna().unique().tolist())
     
-    st.markdown("### 🏭 Production Overview")
+    st.markdown("### 📊 Production Overview")
     
     col1, col2 = st.columns(2)
     with col1:
         st.metric("🧀 Ingredients", len(unique_items))
     with col2:
-        st.metric("🏗️ Production Areas", len(unique_depts) - 1)
+        st.metric("🏭 Areas", len(unique_depts) - 1)
     
     st.markdown(f"""
     <div class="metric-card">
-        <strong>📊 Total Transactions:</strong> {len(data):,}<br>
-        <strong>⚖️ Total Quantity Used:</strong> {data['QUANTITY'].sum():,.0f} units
+        <strong>Total Records:</strong> {len(data):,}<br>
+        <strong>Total Quantity:</strong> {data['QUANTITY'].sum():,.0f}
     </div>
     """, unsafe_allow_html=True)
     
-    if not data.empty:
-        # Safely display date range
-        if "DATE" in data.columns and data["DATE"].notna().any():
-            min_date = data["DATE"].min()
-            max_date = data["DATE"].max()
-            if pd.notna(min_date) and pd.notna(max_date):
-                st.info(f"**📅 Data Range:** {min_date.strftime('%d %b %Y')} to {max_date.strftime('%d %b %Y')}")
+    if not data.empty and "DATE" in data.columns and data["DATE"].notna().any():
+        min_date = data["DATE"].min()
+        max_date = data["DATE"].max()
+        if pd.notna(min_date) and pd.notna(max_date):
+            st.info(f"**Date Range:** {min_date.strftime('%d %b %Y')} to {max_date.strftime('%d %b %Y')}")
     
-    # Refresh button with cheese theme
-    if st.button("🔄 Refresh Production Data", use_container_width=True):
+    if st.button("🔄 Refresh Data", use_container_width=True):
         st.cache_data.clear()
-        with st.spinner("Updating from cheese production database..."):
+        with st.spinner("Updating..."):
             st.session_state.data = load_data_from_google_sheet()
-        st.success("Production data refreshed!")
         st.rerun()
     
     st.markdown("---")
     
-    # View mode with custom styling
     st.markdown("### 📋 Navigation")
     view_mode = st.radio(
         "Select View:",
@@ -526,51 +583,41 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Company branding
     st.markdown("""
-    <div style="text-align: center; padding: 15px; background: var(--cream); border-radius: 10px; border: 1px solid var(--cheese-yellow);">
-        <h4 style="color: var(--dark-brown); margin: 0;">Brown's Cheese Co.</h4>
-        <p style="color: var(--brown); margin: 5px 0; font-size: 12px;">Est. 1979 • Artisan Cheese Makers</p>
-        <p style="color: var(--brown); margin: 5px 0; font-size: 11px;">Premium Dairy Products</p>
+    <div style="text-align: center; padding: 12px; background: var(--off-white); border-radius: 8px; border: 1px solid var(--warm-beige);">
+        <p style="color: var(--medium-brown); margin: 0; font-size: 13px; font-weight: 600;">Brown's Cheese Co.</p>
+        <p style="color: var(--soft-brown); margin: 3px 0; font-size: 11px;">Artisan Cheese Makers</p>
     </div>
     """, unsafe_allow_html=True)
 
-# Main Content with Cheese Manufacturing Theme
+# Main Content with Lighter Theme
 st.markdown("""
     <div class="main-title">
         <h1><span class="cheese-icon">🧀</span> Brown's Cheese Ingredients Allocation</h1>
-        <p>Optimizing Ingredient Distribution Across Cheese Production Facilities</p>
+        <p>Optimizing Ingredient Distribution Across Production</p>
     </div>
 """, unsafe_allow_html=True)
 
-# Production status indicator
+# Production status
 if data is not None and not data.empty:
     latest_date = data["DATE"].max()
     days_since_update = (datetime.now().date() - latest_date.date()).days
     
     if days_since_update <= 1:
-        st.success(f"✅ Production data updated today - {latest_date.strftime('%d %b %Y')}")
+        st.success(f"✅ Data updated today - {latest_date.strftime('%d %b %Y')}")
     elif days_since_update <= 7:
-        st.info(f"📋 Production data from {days_since_update} days ago - {latest_date.strftime('%d %b %Y')}")
+        st.info(f"📋 Data from {days_since_update} days ago - {latest_date.strftime('%d %b %Y')}")
     else:
-        st.warning(f"⚠️ Production data is {days_since_update} days old - Last update: {latest_date.strftime('%d %b %Y')}")
+        st.warning(f"⚠️ Data is {days_since_update} days old - Last update: {latest_date.strftime('%d %b %Y')}")
 
-# Data quality warning
 if data is not None and data.empty:
     st.markdown("""
         <div class="data-warning">
-            ⚠️ No valid production data available. Please check:
-            1. Production database connection
-            2. Ingredient tracking sheets
-            3. Data entry in cheese production logs
+            ⚠️ No valid data available. Please check your data source.
         </div>
     """, unsafe_allow_html=True)
-elif data is not None and "DATE" in data.columns:
-    invalid_dates = data["DATE"].isna().sum()
-    if invalid_dates > 0:
-        st.warning(f"⚠️ {invalid_dates} production records have invalid dates")
 
-# Extract view mode from radio selection
+# Extract view mode
 if "Allocation Calculator" in view_mode:
     view_mode_clean = "Allocation Calculator"
 else:
@@ -578,25 +625,22 @@ else:
 
 if view_mode_clean == "Allocation Calculator":
     if data is not None and not data.empty:
-        # Calculator Interface
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("### 🧮 Cheese Production Allocation")
+        st.markdown("### 🧮 Production Allocation")
         
         with st.form("calculator_form"):
             col1, col2 = st.columns(2)
             with col1:
                 num_items = st.number_input(
-                    "Number of Ingredients to Allocate", 
+                    "Number of Ingredients", 
                     min_value=1, 
                     max_value=10, 
-                    value=1,
-                    help="Select how many different cheese ingredients to allocate"
+                    value=1
                 )
             with col2:
                 selected_dept = st.selectbox(
-                    "Production Area Filter", 
-                    unique_depts,
-                    help="Filter by specific cheese production area or view all"
+                    "Production Area", 
+                    unique_depts
                 )
             
             st.markdown("---")
@@ -607,269 +651,161 @@ if view_mode_clean == "Allocation Calculator":
                 col1, col2 = st.columns([3, 1])
                 with col1:
                     item = st.selectbox(
-                        f"Select cheese ingredient {i+1}", 
+                        f"Select ingredient {i+1}", 
                         unique_items, 
-                        key=f"item_select_{i}",
-                        help="Choose from available cheese production ingredients"
+                        key=f"item_select_{i}"
                     )
                 with col2:
                     qty = st.number_input(
-                        "Batch Quantity",
+                        "Quantity",
                         min_value=0.1,
                         value=1.0,
                         step=0.1,
-                        key=f"qty_input_{i}",
-                        help="Enter batch quantity for allocation"
+                        key=f"qty_input_{i}"
                     )
                 
                 if item and qty > 0:
                     entries.append((item, qty))
             
             submitted = st.form_submit_button(
-                "🧀 Calculate Production Allocation", 
+                "🧀 Calculate Allocation", 
                 type="primary",
                 use_container_width=True
             )
         
         st.markdown("</div>")
         
-        # Process Allocation
         if submitted and entries:
             for idx, (item, qty) in enumerate(entries):
-                with st.spinner(f"Calculating allocation for {item}..."):
+                with st.spinner(f"Calculating..."):
                     result = allocate_quantity(data, item, qty, selected_dept)
                 
                 if result is not None and not result.empty:
                     st.markdown('<div class="card">', unsafe_allow_html=True)
-                    st.markdown(f"### 📋 Production Allocation for: **{item}**")
+                    st.markdown(f"### 📋 Allocation for: **{item}**")
                     
-                    # Create display dataframe
                     display_df = result[["DEPARTMENT", "PROPORTION", "ALLOCATED_QUANTITY"]].copy()
                     display_df.columns = ["Production Area", "Usage %", "Allocated Quantity"]
                     display_df["Usage %"] = display_df["Usage %"].round(2)
                     
-                    # Display table with custom styling
                     st.markdown("#### 📊 Allocation Summary")
                     st.dataframe(
                         display_df,
                         use_container_width=True,
                         column_config={
-                            "Production Area": st.column_config.TextColumn(width="medium"),
                             "Usage %": st.column_config.ProgressColumn(
                                 format="%.1f%%",
                                 min_value=0,
                                 max_value=100
-                            ),
-                            "Allocated Quantity": st.column_config.NumberColumn(format="%d units")
+                            )
                         }
                     )
                     
-                    # Summary metrics with cheese theme
-                    st.markdown("#### 📈 Batch Statistics")
                     col1, col2, col3 = st.columns(3)
                     with col1:
-                        st.metric(
-                            "Total Allocated", 
-                            f"{display_df['Allocated Quantity'].sum():.0f}",
-                            "units"
-                        )
+                        st.metric("Total Allocated", f"{display_df['Allocated Quantity'].sum():.0f}")
                     with col2:
-                        st.metric(
-                            "Production Areas", 
-                            len(display_df),
-                            "locations"
-                        )
+                        st.metric("Production Areas", len(display_df))
                     with col3:
-                        st.metric(
-                            "Batch Size", 
-                            f"{qty:.1f}",
-                            "total units"
-                        )
+                        st.metric("Batch Size", f"{qty:.1f}")
                     
-                    # Chart
-                    st.markdown("#### 📊 Allocation Visualization")
+                    st.markdown("#### 📈 Visualization")
                     chart = generate_allocation_chart(result, item)
                     st.plotly_chart(chart, use_container_width=True)
                     
-                    # Download option
                     csv = display_df.to_csv(index=False)
                     st.download_button(
-                        label="📥 Download Allocation Report",
+                        label="📥 Download Report",
                         data=csv,
-                        file_name=f"cheese_allocation_{item.replace('/', '_').replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.csv",
+                        file_name=f"allocation_{item.replace('/', '_')[:20]}_{datetime.now().strftime('%Y%m%d')}.csv",
                         mime="text/csv",
                         use_container_width=True
                     )
                     
                     st.markdown("</div>")
                 else:
-                    st.error(f"❌ No historical production data found for: {item}")
-                    st.info(f"💡 This ingredient may be new or not yet tracked in production. Check the Production Analytics view for available ingredients.")
+                    st.error(f"❌ No data found for: {item}")
     else:
-        st.warning("🧀 No production data available for allocation. Please ensure your cheese production database is connected.")
+        st.warning("🧀 No data available for allocation.")
 
 elif view_mode_clean == "Data Overview":
     if data is not None and not data.empty:
-        # Data Overview Interface
         st.markdown('<div class="card">', unsafe_allow_html=True)
-        st.markdown("### 📈 Cheese Production Analytics")
+        st.markdown("### 📈 Production Analytics")
         
-        # Filters
         col1, col2 = st.columns(2)
         with col1:
-            filter_items = st.multiselect(
-                "Filter by Ingredients",
-                unique_items,
-                default=[],
-                help="Select specific cheese ingredients to analyze"
-            )
+            filter_items = st.multiselect("Filter by Ingredients", unique_items, default=[])
         with col2:
-            filter_depts = st.multiselect(
-                "Filter by Production Areas",
-                unique_depts[1:],
-                default=[],
-                help="Select specific cheese production areas"
-            )
+            filter_depts = st.multiselect("Filter by Areas", unique_depts[1:], default=[])
         
-        # Apply filters
         filtered_data = data.copy()
         if filter_items:
             filtered_data = filtered_data[filtered_data["ITEM_NAME"].isin(filter_items)]
         if filter_depts:
             filtered_data = filtered_data[filtered_data["DEPARTMENT"].isin(filter_depts)]
         
-        # Production Statistics
-        st.markdown("#### 📊 Production Statistics")
+        st.markdown("#### 📊 Statistics")
         cols = st.columns(4)
         with cols[0]:
-            st.metric("Production Records", f"{len(filtered_data):,}")
+            st.metric("Records", f"{len(filtered_data):,}")
         with cols[1]:
-            total_qty = filtered_data['QUANTITY'].sum()
-            st.metric("Total Ingredients Used", f"{total_qty:,.0f}", "units")
+            st.metric("Total Quantity", f"{filtered_data['QUANTITY'].sum():,.0f}")
         with cols[2]:
-            unique_ingredients = filtered_data["ITEM_NAME"].nunique()
-            st.metric("Unique Ingredients", unique_ingredients)
+            st.metric("Ingredients", filtered_data["ITEM_NAME"].nunique())
         with cols[3]:
-            active_areas = filtered_data["DEPARTMENT"].nunique()
-            st.metric("Active Production Areas", active_areas)
+            st.metric("Areas", filtered_data["DEPARTMENT"].nunique())
         
-        # Data Preview
-        st.markdown("#### 👁️ Production Data Preview")
+        st.markdown("#### 👁️ Data Preview")
         preview_cols = ["DATE", "ITEM_NAME", "DEPARTMENT", "QUANTITY", "UNIT_OF_MEASURE"]
-        
-        # Format the preview nicely
         preview_data = filtered_data[preview_cols].head(100).copy()
         preview_data["DATE"] = preview_data["DATE"].dt.strftime('%d %b %Y')
         
         st.dataframe(
             preview_data,
             use_container_width=True,
-            hide_index=True,
-            column_config={
-                "DATE": "Production Date",
-                "ITEM_NAME": "Cheese Ingredient",
-                "DEPARTMENT": "Production Area",
-                "QUANTITY": "Quantity",
-                "UNIT_OF_MEASURE": "Unit"
-            }
+            hide_index=True
         )
         
         if len(filtered_data) > 100:
-            st.info(f"📄 Showing 100 of {len(filtered_data)} production records. Use filters to narrow down.")
+            st.info(f"Showing 100 of {len(filtered_data)} records")
         
-        # Top Ingredients Chart
-        st.markdown("#### 🏆 Top 10 Cheese Ingredients by Usage")
+        st.markdown("#### 🏆 Top Ingredients")
         top_items = data.groupby("ITEM_NAME")["QUANTITY"].sum().nlargest(10).reset_index()
         if not top_items.empty:
             fig1 = px.bar(
                 top_items,
                 x="ITEM_NAME",
                 y="QUANTITY",
-                title="Most Used Cheese Ingredients",
                 color="QUANTITY",
-                color_continuous_scale=['#FFD700', '#F4A460', '#DAA520', '#CD853F'],
-                labels={"ITEM_NAME": "Cheese Ingredient", "QUANTITY": "Total Usage (units)"}
+                color_continuous_scale=['#FFE4B5', '#FFDAB9', '#FAEBD7'],
+                labels={"ITEM_NAME": "Ingredient", "QUANTITY": "Total Usage"}
             )
             fig1.update_layout(
                 xaxis_tickangle=-45,
-                plot_bgcolor='#FFF8E7',
-                paper_bgcolor='#FFF8E7',
-                font=dict(color='#5D4037')
+                plot_bgcolor='#FFFDF6',
+                paper_bgcolor='#FFFDF6',
+                font=dict(color='#6B4226')
             )
             st.plotly_chart(fig1, use_container_width=True)
         
-        # Production Area Distribution
-        st.markdown("#### 🏭 Ingredient Usage by Production Area")
-        dept_dist = data.groupby("DEPARTMENT")["QUANTITY"].sum().reset_index()
-        if not dept_dist.empty and len(dept_dist) > 1:
-            fig2 = px.pie(
-                dept_dist,
-                values="QUANTITY",
-                names="DEPARTMENT",
-                title="Ingredient Distribution Across Cheese Production",
-                hole=0.4,
-                color_discrete_sequence=['#FFD700', '#F4A460', '#DAA520', '#CD853F', '#8B4513', '#A0522D']
-            )
-            fig2.update_layout(
-                plot_bgcolor='#FFF8E7',
-                paper_bgcolor='#FFF8E7',
-                font=dict(color='#5D4037')
-            )
-            st.plotly_chart(fig2, use_container_width=True)
-        
-        # Monthly Production Trend
-        st.markdown("#### 📅 Monthly Production Trend")
-        monthly_data = data.copy()
-        monthly_data["MONTH"] = monthly_data["DATE"].dt.to_period("M").astype(str)
-        monthly_trend = monthly_data.groupby("MONTH")["QUANTITY"].sum().reset_index()
-        
-        if not monthly_trend.empty:
-            fig3 = px.line(
-                monthly_trend,
-                x="MONTH",
-                y="QUANTITY",
-                title="Monthly Cheese Ingredient Usage",
-                markers=True,
-                line_shape="spline",
-                color_discrete_sequence=['#8B4513']
-            )
-            fig3.update_layout(
-                xaxis_title="Month",
-                yaxis_title="Total Ingredients (units)",
-                xaxis_tickangle=-45,
-                plot_bgcolor='#FFF8E7',
-                paper_bgcolor='#FFF8E7',
-                font=dict(color='#5D4037')
-            )
-            fig3.update_traces(line=dict(width=3))
-            st.plotly_chart(fig3, use_container_width=True)
-        
         st.markdown("</div>")
-    else:
-        st.warning("🧀 No production data available for analytics. Please connect to the cheese production database.")
 
-# Footer with Cheese Company Branding
+# Footer
 st.markdown("""
     <div class="footer">
-        <h4>🧀 Brown's Cheese Company</h4>
-        <p style="margin: 10px 0; color: var(--dark-brown);">
-            <strong>Artisan Cheese Excellence Since 1979</strong><br>
-            Ingredients Allocation System • Version 3.2 • Cheese Production Edition
+        <p style="margin: 10px 0; color: var(--medium-brown); font-weight: 600;">
+            Brown's Cheese Company • Ingredients Allocation System
         </p>
-        <p style="font-size: 12px; color: var(--brown); margin: 5px 0;">
-            For production support: cheesedata@brownscheese.co.ke | 
-            For system issues: it-support@brownscheese.co.ke
-        </p>
-        <p style="font-size: 11px; color: var(--brown); margin: 10px 0 0 0;">
-            © 2024 Brown's Cheese Company. All rights reserved. | 
-            Premium Dairy Products | Nairobi, Kenya
+        <p style="font-size: 12px; color: var(--soft-brown); margin: 5px 0;">
+            © 2024 Brown's Cheese Company
         </p>
     </div>
 """, unsafe_allow_html=True)
 
-# Add cheese-themed emoji decorations
+# Decorative emojis
 st.markdown("""
-    <div style="text-align: center; margin: 20px 0;">
-        <span style="font-size: 24px;">🧀 🐄 🥛 🧈 🍶 🏭 📊 📈</span>
+    <div style="text-align: center; margin: 20px 0; opacity: 0.7;">
+        <span style="font-size: 20px;">🧀 🐄 🥛 📊 📈</span>
     </div>
 """, unsafe_allow_html=True)
