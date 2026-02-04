@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import os
 from datetime import datetime, timedelta
 import plotly.express as px
+import re
 
 # Load environment variables
 load_dotenv()
@@ -148,16 +149,83 @@ def filter_data_by_date_range(df, start_date=None, end_date=None, default_range=
 def get_all_cached_data():
     return load_all_data_from_google_sheet()
 
+def find_similar_items(df, search_term, max_results=10):
+    """Find similar items in the database."""
+    if df is None or df.empty:
+        return []
+    
+    search_lower = str(search_term).lower()
+    available_items = df["ITEM_NAME"].dropna().unique().tolist()
+    
+    # Calculate similarity scores
+    similar_items = []
+    for item in available_items:
+        item_lower = str(item).lower()
+        
+        # Check for exact match
+        if search_lower == item_lower:
+            similar_items.append((item, 100))
+        
+        # Check for contains
+        elif search_lower in item_lower or item_lower in search_lower:
+            similar_items.append((item, 90))
+        
+        # Check for word overlap
+        else:
+            search_words = set(search_lower.split())
+            item_words = set(item_lower.split())
+            common_words = search_words.intersection(item_words)
+            
+            if common_words:
+                similarity = len(common_words) / max(len(search_words), len(item_words)) * 100
+                if similarity > 30:  # At least 30% similar
+                    similar_items.append((item, similarity))
+    
+    # Sort by similarity score and return item names
+    similar_items.sort(key=lambda x: x[1], reverse=True)
+    return [item for item, score in similar_items[:max_results]]
+
 def calculate_proportion(df, identifier, department=None, min_proportion=1.0):
     """
-    Calculate department-wise usage proportion.
+    Calculate department-wise usage proportion with improved matching.
     """
     if df is None or df.empty:
         return None
     
     try:
-        # Try to find item by name (case-insensitive)
-        filtered_df = df[df["ITEM_NAME"].str.lower().str.contains(identifier.lower(), na=False)]
+        # Clean the identifier (remove extra spaces, convert to lowercase)
+        clean_identifier = str(identifier).strip().lower()
+        
+        # Try multiple matching strategies
+        filtered_df = None
+        
+        # Strategy 1: Exact match (case-insensitive)
+        filtered_df = df[df["ITEM_NAME"].str.lower() == clean_identifier]
+        
+        # Strategy 2: Contains match (if exact fails)
+        if filtered_df.empty:
+            filtered_df = df[df["ITEM_NAME"].str.lower().str.contains(clean_identifier, na=False)]
+        
+        # Strategy 3: Partial word matching (handle variations)
+        if filtered_df.empty:
+            # Split into words and search for any match
+            search_words = clean_identifier.split()
+            if search_words:
+                # Create a pattern that matches any of the words
+                pattern = '|'.join([re.escape(word) for word in search_words if len(word) > 2])
+                if pattern:
+                    filtered_df = df[df["ITEM_NAME"].str.lower().str.contains(pattern, na=False)]
+        
+        # Strategy 4: Try removing special characters and extra spaces
+        if filtered_df.empty:
+            clean_identifier_simple = re.sub(r'[^\w\s]', '', clean_identifier).strip()
+            filtered_df = df[df["ITEM_NAME"].str.lower().str.replace(r'[^\w\s]', '', regex=True).str.strip() == clean_identifier_simple]
+        
+        # Strategy 5: Try ITEM_SERIAL if available
+        if filtered_df.empty and "ITEM_SERIAL" in df.columns:
+            # Check if identifier looks like a serial number
+            if any(char.isdigit() for char in str(identifier)):
+                filtered_df = df[df["ITEM_SERIAL"].astype(str).str.contains(str(identifier), case=False, na=False)]
         
         if filtered_df.empty:
             return None
@@ -200,6 +268,8 @@ def calculate_proportion(df, identifier, department=None, min_proportion=1.0):
         
     except Exception as e:
         st.error(f"Error calculating proportions: {e}")
+        import traceback
+        st.error(f"Detailed error: {traceback.format_exc()}")
         return None
 
 def allocate_quantity(df, identifier, available_quantity, department=None):
@@ -755,13 +825,35 @@ if view_mode_clean == "Allocation Calculator":
             entries = []
             for i in range(num_items):
                 st.markdown(f"**Ingredient {i+1}**")
+                
+                # Search box for ingredients
+                search_term = st.text_input(
+                    f"Search ingredient {i+1}",
+                    key=f"search_{i}",
+                    placeholder="Type to search...",
+                    help="Start typing to find ingredients"
+                )
+                
+                # Filter items based on search
+                if search_term:
+                    filtered_items = [item for item in unique_items 
+                                    if search_term.lower() in item.lower()]
+                else:
+                    filtered_items = unique_items
+                
                 col1, col2 = st.columns([3, 1])
                 with col1:
                     item = st.selectbox(
                         f"Select ingredient {i+1}", 
-                        unique_items, 
-                        key=f"item_select_{i}"
+                        filtered_items,
+                        key=f"item_select_{i}",
+                        help="Select from available ingredients or use search above"
                     )
+                    
+                    # Show matching count
+                    if search_term:
+                        st.caption(f"Found {len(filtered_items)} matching ingredients")
+                
                 with col2:
                     qty = st.number_input(
                         "Quantity",
@@ -795,7 +887,14 @@ if view_mode_clean == "Allocation Calculator":
                     if not data.empty and "DATE" in data.columns:
                         calc_min_date = data["DATE"].min().date()
                         calc_max_date = data["DATE"].max().date()
-                        st.caption(f"*Based on data from {calc_min_date.strftime('%d %b %Y')} to {calc_max_date.strftime('%d %b %Y')}*")
+                        st.caption(f"*Based on {len(data):,} records from {calc_min_date.strftime('%d %b %Y')} to {calc_max_date.strftime('%d %b %Y')}*")
+                    
+                    # Show data summary
+                    item_data = data[data["ITEM_NAME"].str.contains(item, case=False, na=False)]
+                    if not item_data.empty:
+                        total_usage = item_data["QUANTITY"].sum()
+                        usage_count = len(item_data)
+                        st.info(f"**Historical Usage:** {total_usage:,.0f} units across {usage_count:,} transactions")
                     
                     display_df = result[["DEPARTMENT", "PROPORTION", "ALLOCATED_QUANTITY"]].copy()
                     display_df.columns = ["Production Area", "Usage %", "Allocated Quantity"]
@@ -837,8 +936,45 @@ if view_mode_clean == "Allocation Calculator":
                     
                     st.markdown("</div>")
                 else:
-                    st.error(f"❌ No data found for: {item}")
-                    st.info("Try adjusting the date range or select a different ingredient.")
+                    # Enhanced error message with suggestions
+                    st.error(f"❌ No allocation data found for: **{item}**")
+                    
+                    with st.expander("🔍 Troubleshooting Tips"):
+                        st.markdown("""
+                        ### Why might this happen?
+                        1. **No historical usage** for this ingredient in the selected date range
+                        2. **Different name spelling** in the database
+                        3. **No usage in selected department** (if filtered)
+                        4. **Ingredient is new** with no usage history
+                        
+                        ### Try these solutions:
+                        """)
+                        
+                        # Show similar items
+                        similar_items = find_similar_items(data, item)
+                        if similar_items:
+                            st.write("**Similar items in database:**")
+                            for similar in similar_items:
+                                st.write(f"- {similar}")
+                        
+                        # Check if item exists with different spelling
+                        item_exists = False
+                        for col in ["ITEM_NAME", "ITEM_SERIAL"]:
+                            if col in data.columns:
+                                matches = data[data[col].astype(str).str.contains(item, case=False, na=False)]
+                                if not matches.empty:
+                                    item_exists = True
+                                    st.write(f"**Found {len(matches)} records with similar names in {col}**")
+                                    st.write(f"**Total quantity:** {matches['QUANTITY'].sum():,.0f} units")
+                                    break
+                        
+                        if not item_exists:
+                            st.write("""
+                            1. **Adjust date range** to include more historical data
+                            2. **Remove department filter** to see all production areas
+                            3. **Check spelling** variations
+                            4. **Search for partial names** (e.g., "olive" instead of "Black Olives")
+                            """)
     else:
         st.warning("🧀 No data available for allocation. Please adjust your date filter.")
 
