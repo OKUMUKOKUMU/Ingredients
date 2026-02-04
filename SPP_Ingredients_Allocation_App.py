@@ -4,9 +4,8 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from dotenv import load_dotenv
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 import plotly.express as px
-import plotly.graph_objects as go
 
 # Load environment variables
 load_dotenv()
@@ -42,11 +41,11 @@ def connect_to_gsheet():
         st.error(f"Failed to connect to Google Sheets: {e}")
         return None
 
-def load_data_from_google_sheet():
+def load_all_data_from_google_sheet():
     """
-    Load data from Google Sheets - corrected version.
+    Load ALL data from Google Sheets without date filtering.
     """
-    with st.spinner("Loading data from Google Sheets..."):
+    with st.spinner("Loading all data from Google Sheets..."):
         try:
             worksheet = connect_to_gsheet()
             if worksheet is None:
@@ -66,11 +65,7 @@ def load_data_from_google_sheet():
             # Create DataFrame
             df = pd.DataFrame(data_rows, columns=headers)
             
-            # Debug: Show data info
-            st.sidebar.write(f"📊 Raw data loaded: {len(df)} rows")
-            
-            # Clean and convert data
-            # Convert DATE - handle YYYY-MM-DD format (as seen in your data)
+            # Convert DATE - handle YYYY-MM-DD format
             df["DATE"] = pd.to_datetime(df["DATE"], errors='coerce')
             
             # Clean QUANTITY - remove non-numeric characters
@@ -87,37 +82,11 @@ def load_data_from_google_sheet():
                     df[col] = df[col].astype(str).str.strip()
             
             # Remove rows with invalid quantities or dates
-            initial_count = len(df)
             df = df.dropna(subset=["QUANTITY"])
             df = df[df["QUANTITY"] > 0]  # Only keep positive quantities
-            filtered_count = len(df)
-            
-            st.sidebar.write(f"✅ Cleaned data: {filtered_count} rows (removed {initial_count - filtered_count} invalid rows)")
-            
-            # Check if we have valid dates
-            valid_dates = df["DATE"].notna().sum()
-            st.sidebar.write(f"📅 Valid dates: {valid_dates} rows")
             
             # Add quarter info for rows with valid dates
             df["QUARTER"] = df["DATE"].dt.to_period("Q")
-            
-            # Filter for recent data (last 2 years)
-            if not df.empty:
-                current_year = datetime.now().year
-                df = df[df["DATE"].dt.year >= current_year - 1]
-                
-                if not df.empty:
-                    # Show date range safely
-                    min_date = df["DATE"].min()
-                    max_date = df["DATE"].max()
-                    if pd.notna(min_date) and pd.notna(max_date):
-                        st.sidebar.info(f"Date range: {min_date.strftime('%d/%m/%Y')} to {max_date.strftime('%d/%m/%Y')}")
-                    else:
-                        st.sidebar.warning("Some dates are invalid")
-                    
-                    st.sidebar.success(f"🎯 Final dataset: {len(df)} records")
-                else:
-                    st.sidebar.warning("No data after filtering for recent years")
             
             return df
             
@@ -127,9 +96,57 @@ def load_data_from_google_sheet():
             st.error(f"Detailed error: {traceback.format_exc()}")
             return None
 
+def filter_data_by_date_range(df, start_date=None, end_date=None, default_range="last_2_years"):
+    """
+    Filter data by date range with multiple options.
+    
+    Parameters:
+    - df: DataFrame with DATE column
+    - start_date: Specific start date (datetime)
+    - end_date: Specific end date (datetime)
+    - default_range: One of ["last_2_years", "last_year", "last_6_months", "last_3_months", "all_time"]
+    """
+    if df is None or df.empty:
+        return df
+    
+    filtered_df = df.copy()
+    
+    # If specific dates are provided, use them
+    if start_date is not None and end_date is not None:
+        filtered_df = filtered_df[
+            (filtered_df["DATE"] >= pd.Timestamp(start_date)) & 
+            (filtered_df["DATE"] <= pd.Timestamp(end_date))
+        ]
+    else:
+        # Use default range
+        today = datetime.now().date()
+        
+        if default_range == "last_2_years":
+            start_date = pd.Timestamp(today - timedelta(days=2*365))
+        elif default_range == "last_year":
+            start_date = pd.Timestamp(today - timedelta(days=365))
+        elif default_range == "last_6_months":
+            start_date = pd.Timestamp(today - timedelta(days=6*30))
+        elif default_range == "last_3_months":
+            start_date = pd.Timestamp(today - timedelta(days=3*30))
+        elif default_range == "all_time":
+            start_date = pd.Timestamp.min
+        else:
+            # Default to last 2 years
+            start_date = pd.Timestamp(today - timedelta(days=2*365))
+        
+        end_date = pd.Timestamp(today)
+        
+        filtered_df = filtered_df[
+            (filtered_df["DATE"] >= start_date) & 
+            (filtered_df["DATE"] <= end_date)
+        ]
+    
+    return filtered_df
+
 @st.cache_data(ttl=3600)
-def get_cached_data():
-    return load_data_from_google_sheet()
+def get_all_cached_data():
+    return load_all_data_from_google_sheet()
 
 def calculate_proportion(df, identifier, department=None, min_proportion=1.0):
     """
@@ -247,7 +264,7 @@ def generate_allocation_chart(result_df, item_name):
     
     return fig
 
-# Streamlit App with Lighter Cheese Manufacturing Theme
+# Streamlit App with Date Range Selector
 st.set_page_config(
     page_title="Brown's Cheese - Ingredients Allocation",
     layout="wide",
@@ -479,13 +496,6 @@ st.markdown("""
         border-radius: 8px !important;
     }
     
-    /* Tabs styling */
-    .stTabs [data-baseweb="tab-list"] {
-        background: var(--off-white);
-        border-radius: 8px;
-        padding: 5px;
-    }
-    
     /* Make text more readable */
     p, li, span, div {
         color: var(--medium-brown);
@@ -504,7 +514,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Sidebar with Lighter Cheese Theme
+# Sidebar with Date Range Selector
 with st.sidebar:
     st.markdown("""
         <div class="sidebar-header">
@@ -515,14 +525,75 @@ with st.sidebar:
     
     st.markdown("---")
     
-    # Load data
-    if "data" not in st.session_state:
+    # Date Range Selector
+    st.markdown("### 📅 Date Range Selection")
+    
+    date_range_option = st.radio(
+        "Select Date Range:",
+        ["📊 Default (Last 2 Years)", "🗓️ Custom Range", "📈 All Time Data"],
+        index=0,
+        key="date_range_option"
+    )
+    
+    custom_start_date = None
+    custom_end_date = None
+    
+    if date_range_option == "🗓️ Custom Range":
+        # Calculate min and max dates from data
+        if "all_data" not in st.session_state:
+            st.session_state.all_data = get_all_cached_data()
+        
+        if st.session_state.all_data is not None and not st.session_state.all_data.empty:
+            min_date_all = st.session_state.all_data["DATE"].min().date()
+            max_date_all = st.session_state.all_data["DATE"].max().date()
+            
+            # Default to last 3 months
+            default_start = max(min_date_all, (datetime.now() - timedelta(days=90)).date())
+            default_end = max_date_all
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                custom_start_date = st.date_input(
+                    "Start Date",
+                    value=default_start,
+                    min_value=min_date_all,
+                    max_value=max_date_all,
+                    key="custom_start"
+                )
+            with col2:
+                custom_end_date = st.date_input(
+                    "End Date",
+                    value=default_end,
+                    min_value=min_date_all,
+                    max_value=max_date_all,
+                    key="custom_end"
+                )
+            
+            if custom_start_date > custom_end_date:
+                st.error("⚠️ Start date must be before end date")
+                custom_start_date = None
+                custom_end_date = None
+        else:
+            st.info("Load data first to select custom date range")
+    
+    # Convert date range option to parameter for filter function
+    if date_range_option == "📊 Default (Last 2 Years)":
+        default_range = "last_2_years"
+    elif date_range_option == "🗓️ Custom Range":
+        default_range = "custom"
+    else:  # "📈 All Time Data"
+        default_range = "all_time"
+    
+    st.markdown("---")
+    
+    # Load data with selected date range
+    if "all_data" not in st.session_state:
         with st.spinner("Loading production data..."):
-            st.session_state.data = get_cached_data()
+            st.session_state.all_data = get_all_cached_data()
     
-    data = st.session_state.data
+    all_data = st.session_state.all_data
     
-    if data is None or data.empty:
+    if all_data is None or all_data.empty:
         st.error("⚠️ Failed to load data")
         
         with st.expander("Technical Support"):
@@ -536,16 +607,50 @@ with st.sidebar:
             
             if st.button("Reload Data"):
                 st.cache_data.clear()
-                st.session_state.data = load_data_from_google_sheet()
+                st.session_state.all_data = get_all_cached_data()
                 st.rerun()
         
         st.stop()
     
-    # Get unique values
+    # Filter data based on selected date range
+    with st.spinner("Applying date filter..."):
+        if default_range == "custom" and custom_start_date and custom_end_date:
+            data = filter_data_by_date_range(
+                all_data, 
+                start_date=custom_start_date, 
+                end_date=custom_end_date
+            )
+            date_info = f"Custom: {custom_start_date.strftime('%d %b %Y')} to {custom_end_date.strftime('%d %b %Y')}"
+        elif default_range == "all_time":
+            data = all_data.copy()
+            date_info = "All Time Data"
+        else:
+            data = filter_data_by_date_range(all_data, default_range=default_range)
+            if default_range == "last_2_years":
+                date_info = "Last 2 Years"
+            elif default_range == "last_year":
+                date_info = "Last Year"
+            elif default_range == "last_6_months":
+                date_info = "Last 6 Months"
+            elif default_range == "last_3_months":
+                date_info = "Last 3 Months"
+    
+    # Store filtered data in session state
+    st.session_state.filtered_data = data
+    
+    # Get unique values from filtered data
     unique_items = sorted(data["ITEM_NAME"].dropna().unique().tolist())
     unique_depts = sorted(["All Production Areas"] + data["DEPARTMENT"].dropna().unique().tolist())
     
     st.markdown("### 📊 Production Overview")
+    
+    # Display date range info
+    st.info(f"**Date Range:** {date_info}")
+    
+    if not data.empty and "DATE" in data.columns and data["DATE"].notna().any():
+        min_date = data["DATE"].min().date()
+        max_date = data["DATE"].max().date()
+        st.info(f"**Available Data:** {min_date.strftime('%d %b %Y')} to {max_date.strftime('%d %b %Y')}")
     
     col1, col2 = st.columns(2)
     with col1:
@@ -560,16 +665,10 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
     
-    if not data.empty and "DATE" in data.columns and data["DATE"].notna().any():
-        min_date = data["DATE"].min()
-        max_date = data["DATE"].max()
-        if pd.notna(min_date) and pd.notna(max_date):
-            st.info(f"**Date Range:** {min_date.strftime('%d %b %Y')} to {max_date.strftime('%d %b %Y')}")
-    
-    if st.button("🔄 Refresh Data", use_container_width=True):
+    if st.button("🔄 Refresh & Apply Filter", use_container_width=True):
         st.cache_data.clear()
         with st.spinner("Updating..."):
-            st.session_state.data = load_data_from_google_sheet()
+            st.session_state.all_data = get_all_cached_data()
         st.rerun()
     
     st.markdown("---")
@@ -590,7 +689,7 @@ with st.sidebar:
     </div>
     """, unsafe_allow_html=True)
 
-# Main Content with Lighter Theme
+# Main Content
 st.markdown("""
     <div class="main-title">
         <h1><span class="cheese-icon">🧀</span> Brown's Cheese Ingredients Allocation</h1>
@@ -598,7 +697,9 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# Production status
+# Data status
+data = st.session_state.filtered_data
+
 if data is not None and not data.empty:
     latest_date = data["DATE"].max()
     days_since_update = (datetime.now().date() - latest_date.date()).days
@@ -613,7 +714,7 @@ if data is not None and not data.empty:
 if data is not None and data.empty:
     st.markdown("""
         <div class="data-warning">
-            ⚠️ No valid data available. Please check your data source.
+            ⚠️ No data available for the selected date range. Try adjusting your date filter.
         </div>
     """, unsafe_allow_html=True)
 
@@ -627,6 +728,12 @@ if view_mode_clean == "Allocation Calculator":
     if data is not None and not data.empty:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("### 🧮 Production Allocation")
+        
+        # Show current date range
+        if not data.empty and "DATE" in data.columns and data["DATE"].notna().any():
+            min_date = data["DATE"].min().date()
+            max_date = data["DATE"].max().date()
+            st.info(f"**Using data from:** {min_date.strftime('%d %b %Y')} to {max_date.strftime('%d %b %Y')}")
         
         with st.form("calculator_form"):
             col1, col2 = st.columns(2)
@@ -677,12 +784,18 @@ if view_mode_clean == "Allocation Calculator":
         
         if submitted and entries:
             for idx, (item, qty) in enumerate(entries):
-                with st.spinner(f"Calculating..."):
+                with st.spinner(f"Calculating allocation for {item}..."):
                     result = allocate_quantity(data, item, qty, selected_dept)
                 
                 if result is not None and not result.empty:
                     st.markdown('<div class="card">', unsafe_allow_html=True)
                     st.markdown(f"### 📋 Allocation for: **{item}**")
+                    
+                    # Show date range used for calculation
+                    if not data.empty and "DATE" in data.columns:
+                        calc_min_date = data["DATE"].min().date()
+                        calc_max_date = data["DATE"].max().date()
+                        st.caption(f"*Based on data from {calc_min_date.strftime('%d %b %Y')} to {calc_max_date.strftime('%d %b %Y')}*")
                     
                     display_df = result[["DEPARTMENT", "PROPORTION", "ALLOCATED_QUANTITY"]].copy()
                     display_df.columns = ["Production Area", "Usage %", "Allocated Quantity"]
@@ -725,13 +838,20 @@ if view_mode_clean == "Allocation Calculator":
                     st.markdown("</div>")
                 else:
                     st.error(f"❌ No data found for: {item}")
+                    st.info("Try adjusting the date range or select a different ingredient.")
     else:
-        st.warning("🧀 No data available for allocation.")
+        st.warning("🧀 No data available for allocation. Please adjust your date filter.")
 
 elif view_mode_clean == "Data Overview":
     if data is not None and not data.empty:
         st.markdown('<div class="card">', unsafe_allow_html=True)
         st.markdown("### 📈 Production Analytics")
+        
+        # Show current date range
+        if not data.empty and "DATE" in data.columns and data["DATE"].notna().any():
+            min_date = data["DATE"].min().date()
+            max_date = data["DATE"].max().date()
+            st.info(f"**Viewing data from:** {min_date.strftime('%d %b %Y')} to {max_date.strftime('%d %b %Y')}")
         
         col1, col2 = st.columns(2)
         with col1:
@@ -770,8 +890,8 @@ elif view_mode_clean == "Data Overview":
         if len(filtered_data) > 100:
             st.info(f"Showing 100 of {len(filtered_data)} records")
         
-        st.markdown("#### 🏆 Top Ingredients")
-        top_items = data.groupby("ITEM_NAME")["QUANTITY"].sum().nlargest(10).reset_index()
+        st.markdown("#### 🏆 Top Ingredients (Selected Date Range)")
+        top_items = filtered_data.groupby("ITEM_NAME")["QUANTITY"].sum().nlargest(10).reset_index()
         if not top_items.empty:
             fig1 = px.bar(
                 top_items,
@@ -785,9 +905,37 @@ elif view_mode_clean == "Data Overview":
                 xaxis_tickangle=-45,
                 plot_bgcolor='#FFFDF6',
                 paper_bgcolor='#FFFDF6',
-                font=dict(color='#6B4226')
+                font=dict(color='#6B4226'),
+                title=f"Top 10 Ingredients ({min_date.strftime('%b %Y')} to {max_date.strftime('%b %Y')})"
             )
             st.plotly_chart(fig1, use_container_width=True)
+        
+        # Monthly trend for selected date range
+        st.markdown("#### 📅 Monthly Usage Trend")
+        monthly_data = filtered_data.copy()
+        monthly_data["MONTH"] = monthly_data["DATE"].dt.to_period("M").astype(str)
+        monthly_trend = monthly_data.groupby("MONTH")["QUANTITY"].sum().reset_index()
+        
+        if not monthly_trend.empty and len(monthly_trend) > 1:
+            fig2 = px.line(
+                monthly_trend,
+                x="MONTH",
+                y="QUANTITY",
+                markers=True,
+                line_shape="spline",
+                color_discrete_sequence=['#8B7355']
+            )
+            fig2.update_layout(
+                xaxis_title="Month",
+                yaxis_title="Total Quantity",
+                xaxis_tickangle=-45,
+                plot_bgcolor='#FFFDF6',
+                paper_bgcolor='#FFFDF6',
+                font=dict(color='#6B4226'),
+                title=f"Monthly Trend ({min_date.strftime('%b %Y')} to {max_date.strftime('%b %Y')})"
+            )
+            fig2.update_traces(line=dict(width=3))
+            st.plotly_chart(fig2, use_container_width=True)
         
         st.markdown("</div>")
 
@@ -798,7 +946,7 @@ st.markdown("""
             Brown's Cheese Company • Ingredients Allocation System
         </p>
         <p style="font-size: 12px; color: var(--soft-brown); margin: 5px 0;">
-            © 2024 Brown's Cheese Company
+            © 2024 Brown's Cheese Company • Date Range Filter Enabled
         </p>
     </div>
 """, unsafe_allow_html=True)
@@ -806,6 +954,6 @@ st.markdown("""
 # Decorative emojis
 st.markdown("""
     <div style="text-align: center; margin: 20px 0; opacity: 0.7;">
-        <span style="font-size: 20px;">🧀 🐄 🥛 📊 📈</span>
+        <span style="font-size: 20px;">🧀 🐄 🥛 📊 📈 📅</span>
     </div>
 """, unsafe_allow_html=True)
